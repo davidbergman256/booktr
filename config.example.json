@@ -1,0 +1,9 @@
+{
+  "openai_api_key": "sk-VLOZTE-KLIC",
+  "model_draft": "gpt5.4-mini",
+  "model_review": "gpt5.5",
+  "helper_name": "David",
+  "helper_phone": "+420 000 000 000",
+  "output_dir": null,
+  "page_format": "a4"
+}

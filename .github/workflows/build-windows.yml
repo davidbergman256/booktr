@@ -1,0 +1,42 @@
+name: build-windows
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: pytest -q
+
+  build:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install . pyinstaller
+
+      - name: Download typst binary
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/typst/typst/releases/latest/download/typst-x86_64-pc-windows-msvc.zip" -OutFile typst.zip
+          Expand-Archive typst.zip -DestinationPath .
+          New-Item -ItemType Directory -Force -Path typst | Out-Null
+          Move-Item typst-x86_64-pc-windows-msvc/typst.exe typst/typst.exe
+
+      - run: pyinstaller build/booktr.spec
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BookTr-windows
+          path: dist/BookTr.exe
