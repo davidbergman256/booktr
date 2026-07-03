@@ -3,8 +3,8 @@
 **Purpose:** A dead-simple Windows app for a 72-year-old Czech-speaking user. He picks a book PDF (often a clean but unparsed scan), presses one big button, and gets a cleanly typeset Czech PDF on his Desktop. Everything visible to him is in Czech; everything that can go wrong is handled without scary dialogs.
 
 **Pipeline contract (fixed):**
-- **Pass 1 (draft):** `gpt5.4-mini` translates the whole book.
-- **Pass 2 (review):** `gpt5.5` reviews each chunk and outputs **only the paragraphs it changed**.
+- **Pass 1 (draft):** `gpt-5.4-mini` translates the whole book.
+- **Pass 2 (review):** `gpt-5.5` reviews each chunk and outputs **only the paragraphs it changed**.
 - **Merge:** a deterministic script combines draft + review patches into the final text.
 
 ---
@@ -16,7 +16,7 @@
 | Language | Python 3.12 | Single language for GUI + pipeline; easy for the son to maintain |
 | GUI | Tkinter (stdlib) | Zero fragile dependencies; large fonts/buttons are trivial; ships inside the .exe |
 | PDF text extraction | `pypdfium2` | Fast, liberal license, reliable text-layer detection |
-| OCR (scanned pages) | `gpt5.4-mini` vision | Avoids bundling Tesseract; better at book layout (hyphenation, headers, drop caps) |
+| OCR (scanned pages) | `gpt-5.4-mini` vision | Avoids bundling Tesseract; better at book layout (hyphenation, headers, drop caps) |
 | API client | `openai` SDK | Both models are OpenAI |
 | Typesetting | **Typst** (bundled `typst.exe`, single binary) | Print-quality output, Czech hyphenation, no LaTeX install |
 | Packaging | PyInstaller → single `BookTr.exe` | One file to put on Dad's desktop |
@@ -58,11 +58,11 @@ All artifacts are JSON/Markdown files in the job directory (§5), so every stage
 
 ### Stage 0 — Ingest (`engine/ingest.py`)
 1. Open PDF with `pypdfium2`. For each page, extract the text layer.
-2. **Scanned-page detection:** if a page yields < 50 characters, treat it as image-only → render at 200 DPI to PNG → send to `gpt5.4-mini` (vision) with a transcription prompt: *transcribe verbatim, join hyphenated line breaks, drop running headers/footers and page numbers, mark paragraph breaks with blank lines, mark chapter headings with `## `.* Batched a few pages per request for context continuity.
+2. **Scanned-page detection:** if a page yields < 50 characters, treat it as image-only → render at 200 DPI to PNG → send to `gpt-5.4-mini` (vision) with a transcription prompt: *transcribe verbatim, join hyphenated line breaks, drop running headers/footers and page numbers, mark paragraph breaks with blank lines, mark chapter headings with `## `.* Batched a few pages per request for context continuity.
 3. Output: raw per-page text.
 
 ### Stage 0b — Segment (`engine/segment.py`)
-1. Join pages, split into paragraphs, detect chapter boundaries (heading heuristics: `## ` markers from OCR, all-caps/short lines, numbering patterns; ambiguous cases resolved with one cheap `gpt5.4-mini` call over the candidate list).
+1. Join pages, split into paragraphs, detect chapter boundaries (heading heuristics: `## ` markers from OCR, all-caps/short lines, numbering patterns; ambiguous cases resolved with one cheap `gpt-5.4-mini` call over the candidate list).
 2. Assign **stable paragraph IDs** `chNN-pMMM` (e.g. `ch03-p014`). These IDs are the backbone of the whole pipeline — they never change after this stage.
 3. Output → `book.json`:
 ```json
@@ -76,17 +76,17 @@ All artifacts are JSON/Markdown files in the job directory (§5), so every stage
 Source language is auto-detected here (single model call on the first ~2 pages).
 
 ### Stage 1 — Style sheet (`engine/stylesheet.py`)
-Sequential skim of the book with `gpt5.4-mini` (chapter at a time, carrying a running state), producing:
+Sequential skim of the book with `gpt-5.4-mini` (chapter at a time, carrying a running state), producing:
 - `stylesheet.md` — character & place names with **Czech declension forms**, the global **ty/vy register decision per character pair**, recurring terminology with the chosen Czech rendering, tone/era notes.
 - `synopses.json` — one-paragraph synopsis per chapter (used as context in passes 1 & 2 so chapters can be processed independently).
 
-### Stage 2 — Translate, pass 1 (`engine/translate.py`, model `gpt5.4-mini`)
+### Stage 2 — Translate, pass 1 (`engine/translate.py`, model `gpt-5.4-mini`)
 - Work unit: **chunk** = consecutive paragraphs of one chapter, ~3 000 source words.
 - System prompt: translator instructions + full `stylesheet.md` (sent as a cached prefix) ; user prompt: synopses of all *prior* chapters + the chunk's paragraphs labeled with their IDs.
 - Output contract: JSON object `{"ch03-p014": "český text", ...}` covering **every** input ID (structured-output/JSON mode enforced).
 - Output → `draft.json` (flat map of all paragraph IDs → Czech).
 
-### Stage 3 — Review, pass 2 (`engine/review.py`, model `gpt5.5`)
+### Stage 3 — Review, pass 2 (`engine/review.py`, model `gpt-5.5`)
 - Same chunking. Input: style sheet + source paragraphs + draft paragraphs (ID-labeled).
 - Instruction: *compare draft to source for accuracy, register, naturalness, and style-sheet compliance. Return **only** paragraphs you are improving, as JSON `{"id": "revised text"}`. Return `{}` if the chunk needs no changes. Never return an ID you were not given.*
 - Output → `patches.json` (flat map; typically a small fraction of the book).
@@ -157,8 +157,8 @@ Principles: **no stack traces, no English, no dead ends.** Every error screen ha
 ```json
 {
   "openai_api_key": "sk-...",
-  "model_draft": "gpt5.4-mini",
-  "model_review": "gpt5.5",
+  "model_draft": "gpt-5.4-mini",
+  "model_review": "gpt-5.5",
   "helper_name": "David",
   "helper_phone": "+420 ...",
   "output_dir": null,

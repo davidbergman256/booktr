@@ -28,8 +28,8 @@ def app_dir() -> Path:
 @dataclass
 class Config:
     openai_api_key: str = ""
-    model_draft: str = "gpt5.4-mini"
-    model_review: str = "gpt5.5"
+    model_draft: str = "gpt-5.4-mini"
+    model_review: str = "gpt-5.5"
     helper_name: str = ""
     helper_phone: str = ""
     output_dir: str | None = None

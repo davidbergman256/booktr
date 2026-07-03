@@ -1,4 +1,4 @@
-"""Fáze 2 — překlad (pass 1, gpt5.4-mini).
+"""Fáze 2 — překlad (pass 1, gpt-5.4-mini).
 
 Práce po chuncích ~3000 slov; každý chunk se ukládá hned po ověření,
 takže pád uprostřed knihy ztratí nejvýš jeden chunk.

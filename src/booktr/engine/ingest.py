@@ -1,4 +1,4 @@
-"""Fáze 0 — načtení PDF: textová vrstva, a kde chybí, OCR přes gpt5.4-mini (vision)."""
+"""Fáze 0 — načtení PDF: textová vrstva, a kde chybí, OCR přes gpt-5.4-mini (vision)."""
 from __future__ import annotations
 
 import io

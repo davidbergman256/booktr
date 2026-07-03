@@ -1,4 +1,4 @@
-"""Fáze 3 — revize (pass 2, gpt5.5): vrací POUZE změněné odstavce.
+"""Fáze 3 — revize (pass 2, gpt-5.5): vrací POUZE změněné odstavce.
 
 Selhání revize nikdy nezastaví knihu — u nevalidního výstupu se po jednom
 opravném dotazu chunk prostě ponechá v podobě z pass 1.
