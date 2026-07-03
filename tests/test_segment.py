@@ -22,7 +22,10 @@ def test_build_book_assigns_stable_ids():
     ]
     book = build_book(pages, title="T")
     assert [c["id"] for c in book["chapters"]] == ["ch01", "ch02"]
-    assert all_ids(book) == ["ch01-p001", "ch01-p002", "ch02-p001"]
+    # titul a nadpisy kapitol mají vlastní ID — překládají se spolu s textem
+    assert all_ids(book) == [
+        "book-title", "ch01-h000", "ch01-p001", "ch01-p002", "ch02-h000", "ch02-p001",
+    ]
     # stejný vstup → stejná ID (stabilita je páteří pipeline)
     assert all_ids(build_book(pages, title="T")) == all_ids(book)
 

@@ -49,7 +49,11 @@ def test_full_pipeline_merge(fake_engine, sample_book):
     final = fake_engine.job.read_json("final.json")
     assert final["ch02-p001"] == "Druhá kapitola, opraveno."
     assert final["ch01-p001"] == "CZ: Alice went to the woods."
-    assert list(final) == ["ch01-p001", "ch01-p002", "ch02-p001"]
+    assert final["ch01-h000"] == "CZ: First"  # nadpis kapitoly se překládá také
+    assert final["book-title"] == "CZ: Testovací kniha"
+    assert list(final) == [
+        "book-title", "ch01-h000", "ch01-p001", "ch01-p002", "ch02-h000", "ch02-p001",
+    ]
 
 
 def test_chunking_respects_word_limit(sample_book):
@@ -65,6 +69,6 @@ def test_chunking_respects_word_limit(sample_book):
     for c in chunks:
         words = sum(len(p["text"].split()) for p in c["paragraphs"])
         assert words <= 3000 or len(c["paragraphs"]) == 1
-    # všechny odstavce přesně jednou
+    # všechny odstavce přesně jednou (plus titul a nadpis na začátku)
     seen = [p["id"] for c in chunks for p in c["paragraphs"]]
-    assert seen == [f"ch01-p{n:03d}" for n in range(1, 81)]
+    assert seen == ["book-title", "ch01-h000"] + [f"ch01-p{n:03d}" for n in range(1, 81)]

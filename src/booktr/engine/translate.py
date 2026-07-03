@@ -32,10 +32,19 @@ Do not add, drop or merge paragraphs. No commentary."""
 def build_chunks(book: dict, max_words: int = MAX_CHUNK_WORDS) -> list[dict]:
     """Souvislé odstavce jedné kapitoly po ~max_words slovech. Klíče jsou stabilní."""
     chunks: list[dict] = []
+    first = True
     for ch in book["chapters"]:
         current: list[dict] = []
         words = 0
         part = 0
+        if first and book.get("title"):
+            # titul a nadpisy kapitol putují pipeline jako pseudo-odstavce, aby se přeložily
+            current.append({"id": "book-title", "text": book["title"]})
+            words += len(book["title"].split())
+        first = False
+        if ch.get("heading"):
+            current.append({"id": f"{ch['id']}-h000", "text": ch["heading"]})
+            words += len(ch["heading"].split())
         for p in ch["paragraphs"]:
             n = len(p["text"].split())
             if current and words + n > max_words:

@@ -84,7 +84,15 @@ def build_book(pages: list[str], title: str, source_lang: str = "unknown") -> di
 
 
 def all_ids(book: dict) -> list[str]:
-    return [p["id"] for ch in book["chapters"] for p in ch["paragraphs"]]
+    """Všechna ID v pořadí knihy — včetně titulu a nadpisů kapitol (překládají se také)."""
+    ids: list[str] = []
+    if book.get("title"):
+        ids.append("book-title")
+    for ch in book["chapters"]:
+        if ch.get("heading"):
+            ids.append(f"{ch['id']}-h000")
+        ids.extend(p["id"] for p in ch["paragraphs"])
+    return ids
 
 
 def run(engine):

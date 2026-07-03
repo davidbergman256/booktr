@@ -1,11 +1,8 @@
 import pytest
 
 from booktr.engine.merge import merge_book
+from booktr.engine.segment import all_ids as ids
 from booktr.errors import BookTrError
-
-
-def ids(book):
-    return [p["id"] for ch in book["chapters"] for p in ch["paragraphs"]]
 
 
 def make_draft(book):

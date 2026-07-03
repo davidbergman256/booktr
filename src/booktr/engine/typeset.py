@@ -64,12 +64,13 @@ def compile_typ(typ_file: Path, out_pdf: Path) -> None:
 
 def render_typ(book: dict, final: dict, preamble: str) -> str:
     parts = [preamble, ""]
-    title = escape_typst(book.get("title", "Kniha"))
+    title = escape_typst(final.get("book-title") or book.get("title", "Kniha"))
     parts.append(f'#align(center + horizon)[#text(size: 26pt, weight: "bold")[{title}]]')
     parts.append("#pagebreak()")
     for ch in book["chapters"]:
         if ch.get("heading"):
-            parts.append(f"= {escape_typst(ch['heading'])}")
+            heading = final.get(f"{ch['id']}-h000") or ch["heading"]
+            parts.append(f"= {escape_typst(heading)}")
         else:
             parts.append(f"= Kapitola {int(ch['id'][2:])}")
         parts.append("")
