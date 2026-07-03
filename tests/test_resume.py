@@ -37,6 +37,22 @@ def test_review_outputs_only_changed_paragraphs(fake_engine, sample_book):
     assert patches == {"ch01-p002": "Lepší překlad."}
 
 
+def test_headings_are_harmonized_in_one_call(fake_engine, sample_book):
+    prime(fake_engine.job, sample_book)
+    fake_engine.api.heading_changes = {"ch02-h000": "Kapitola druhá"}
+
+    translate.run(fake_engine)
+    patches = review.run(fake_engine)
+
+    assert fake_engine.api.call_count("HEADINGS") == 1
+    assert patches["ch02-h000"] == "Kapitola druhá"
+    assert "ch01-h000" not in patches  # nezměněné nadpisy nejsou patche
+
+    # checkpoint: opakovaný běh revize už harmonizaci nevolá
+    review.run(fake_engine)
+    assert fake_engine.api.call_count("HEADINGS") == 1
+
+
 def test_full_pipeline_merge(fake_engine, sample_book):
     from booktr.engine import merge
 

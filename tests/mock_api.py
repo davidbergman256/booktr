@@ -9,9 +9,11 @@ import json
 
 
 class MockApi:
-    def __init__(self, review_changes: dict[str, str] | None = None):
+    def __init__(self, review_changes: dict[str, str] | None = None,
+                 heading_changes: dict[str, str] | None = None):
         self.calls: list[str] = []
         self.review_changes = review_changes or {}
+        self.heading_changes = heading_changes or {}
 
     def complete(self, model, system, user, images=None, json_mode=False) -> str:
         tag = system.split("]", 1)[0].lstrip("[")
@@ -24,6 +26,9 @@ class MockApi:
             source = _paragraphs_from(user, "SOURCE PARAGRAPHS_JSON:")
             patches = {k: v for k, v in self.review_changes.items() if k in source}
             return json.dumps(patches, ensure_ascii=False)
+        if tag == "HEADINGS":
+            current = _paragraphs_from(user, "CURRENT CZECH_JSON:")
+            return json.dumps({**current, **self.heading_changes}, ensure_ascii=False)
         if tag == "STYLESHEET":
             return json.dumps({
                 "synopsis": "Shrnutí kapitoly.",
