@@ -40,7 +40,7 @@ QUIT = "Zavřít"
 ERRORS = {
     "auth": "Program se nemůže přihlásit ke službě překladu.\nZavolejte prosím: {helper_name} {helper_phone}",
     "quota": "Služba překladu je momentálně vyčerpaná.\nZavolejte prosím: {helper_name} {helper_phone}",
-    "config": "Program ještě není nastavený.\nZavolejte prosím: {helper_name} {helper_phone}",
+    "config": "Program ještě není nastavený.\nPožádejte prosím o pomoc toho, kdo vám program nainstaloval.",
     "bad_pdf": "Tento soubor se nepodařilo přečíst.\nZkuste prosím jiný soubor s knihou.",
     "disk_full": "Na počítači není dost místa.\nSmažte prosím nepotřebné soubory, nebo zavolejte: {helper_name}",
     "output_locked": "Kniha je otevřená v jiném programu.\nZavřete ji prosím a zkuste to znovu.",

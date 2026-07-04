@@ -48,9 +48,26 @@ def config_path() -> Path:
     return app_dir() / "config.json"
 
 
+_TEMPLATE = {
+    "openai_api_key": "sk-SEM-VLOZTE-KLIC",
+    "model_draft": "gpt-5.4-mini",
+    "model_review": "gpt-5.5",
+    "helper_name": "",
+    "helper_phone": "",
+    "output_dir": None,
+    "page_format": "a4",
+}
+
+
 def load_config() -> Config:
     path = config_path()
     if not path.is_file():
+        # první spuštění: založíme šablonu, ať ji stačí jen vyplnit
+        try:
+            path.write_text(json.dumps(_TEMPLATE, ensure_ascii=False, indent=2) + "\n",
+                            encoding="utf-8")
+        except OSError:
+            pass
         raise BookTrError("config", f"missing {path}")
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
@@ -60,7 +77,7 @@ def load_config() -> Config:
     known = {f for f in Config.__dataclass_fields__ if f != "extra"}
     kwargs = {k: v for k, v in raw.items() if k in known}
     cfg = Config(**kwargs, extra={k: v for k, v in raw.items() if k not in known})
-    if not cfg.openai_api_key:
+    if not cfg.openai_api_key or "VLOZTE" in cfg.openai_api_key:
         raise BookTrError("config", "openai_api_key missing")
     return cfg
 

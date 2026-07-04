@@ -14,7 +14,9 @@ if os.path.isfile(typst_exe):
     binaries.append((typst_exe, "typst"))
 
 a = Analysis(  # noqa: F821
-    [os.path.join(repo, "src", "booktr", "__main__.py")],
+    # launcher, ne __main__.py — ten jako top-level skript nemá balíček
+    # a jeho relativní importy okamžitě spadnou
+    [os.path.join(spec_dir, "launch.py")],
     pathex=[os.path.join(repo, "src")],
     datas=datas,
     binaries=binaries,
