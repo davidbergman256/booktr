@@ -110,17 +110,15 @@ def run(engine):
 
     chunks = build_chunks(book)
     heads = heading_entries(book)
-    total = len(chunks) + (1 if len(heads) >= 2 else 0)
+    total = len(chunks)
+    parts = engine.run_chunks(
+        "review",
+        [(c["key"], c) for c in chunks],
+        lambda chunk: review_chunk(engine, system, chunk, draft),
+    )
     patches: dict[str, str] = {}
-    for idx, chunk in enumerate(chunks):
-        engine.checkpoint_wait()
-        if job.has_chunk("review", chunk["key"]):
-            part = job.load_chunk("review", chunk["key"])
-        else:
-            part = review_chunk(engine, system, chunk, draft)
-            job.save_chunk("review", chunk["key"], part)
-        patches.update(part)
-        engine.report("review", idx + 1, total)
+    for c in chunks:
+        patches.update(parts[c["key"]])
 
     if len(heads) >= 2:  # sjednocení stylu nadpisů přes celou knihu
         engine.checkpoint_wait()

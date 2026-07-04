@@ -6,11 +6,14 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent))  # mock_api importovatelná z testů
 
 from booktr.config import Config  # noqa: E402
+from booktr.engine import Engine  # noqa: E402
 from booktr.state import Job  # noqa: E402
 
 
 class FakeEngine:
     """Minimální náhrada Engine pro testy jednotlivých fází."""
+
+    run_chunks = Engine.run_chunks  # skutečná (souběžná) implementace
 
     def __init__(self, job, api, config):
         self.job = job

@@ -35,29 +35,34 @@ def run(engine):
     if total == 0:
         raise BookTrError("bad_pdf", "PDF has no pages")
 
-    pages: list[str] = []
+    # 1) sekvenčně: textová vrstva + render stránek pro OCR (pypdfium2 není thread-safe)
+    items: list[tuple[str, object]] = []
     for i in range(total):
-        engine.checkpoint_wait()
         key = f"p{i:04d}"
         if job.has_chunk("ingest", key):
-            pages.append(job.load_chunk("ingest", key))
-            engine.report("ingest", i + 1, total)
+            items.append((key, None))
             continue
         page = pdf[i]
         text = page.get_textpage().get_text_bounded() or ""
-        if len(text.strip()) < MIN_TEXT_CHARS:
-            text = _ocr_page(api, cfg, page)
-        job.save_chunk("ingest", key, text)
-        pages.append(text)
-        engine.report("ingest", i + 1, total)
+        if len(text.strip()) >= MIN_TEXT_CHARS:
+            job.save_chunk("ingest", key, text)
+            items.append((key, None))
+        else:
+            items.append((key, _render_png(page)))
 
+    # 2) souběžně: OCR volání (jen API, žádné pdfium)
+    def ocr(png: bytes) -> str:
+        text = api.complete(cfg.model_draft, OCR_SYSTEM, "Transcribe this page.", images=[png])
+        return "" if text.strip() == "[EMPTY]" else text
+
+    results = engine.run_chunks("ingest", items, ocr)
+    pages = [str(results[f"p{i:04d}"]) for i in range(total)]
     job.write_json("pages.json", pages)
     return pages
 
 
-def _ocr_page(api, cfg, page) -> str:
+def _render_png(page) -> bytes:
     pil = page.render(scale=RENDER_SCALE).to_pil()
     buf = io.BytesIO()
     pil.save(buf, format="PNG")
-    text = api.complete(cfg.model_draft, OCR_SYSTEM, "Transcribe this page.", images=[buf.getvalue()])
-    return "" if text.strip() == "[EMPTY]" else text
+    return buf.getvalue()

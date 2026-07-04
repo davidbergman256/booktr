@@ -39,17 +39,23 @@ def split_paragraphs(page_text: str) -> list[str]:
     return paragraphs
 
 
+_QUOTES = "„“”\"'‘’«»"
+
+
 def looks_like_heading(paragraph: str) -> bool:
     p = paragraph.strip()
     if len(p) > 80:
         return False
     if p.startswith("## "):
         return True
+    if p[:1] in _QUOTES:
+        return False  # citovaná řeč — i křičená VELKÝMI PÍSMENY není nadpis
     if _CHAPTER_RE.match(p):
         return True
-    # krátký řádek celý velkými písmeny (bez interpunkce na konci)
+    # krátký řádek celý velkými písmeny (bez interpunkce na konci, ani před uvozovkou)
+    core = p.strip(_QUOTES + " ")
     letters = [c for c in p if c.isalpha()]
-    if 2 <= len(letters) and len(p) <= 40 and all(c.isupper() for c in letters) and not p.endswith((".", ",", "!", "?")):
+    if 2 <= len(letters) and len(p) <= 40 and all(c.isupper() for c in letters) and not core.endswith((".", ",", "!", "?", ":", ";")):
         return True
     return False
 

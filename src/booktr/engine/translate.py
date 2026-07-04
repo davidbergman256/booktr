@@ -102,16 +102,13 @@ def run(engine):
     system = SYSTEM_TMPL.format(stylesheet=stylesheet)
 
     chunks = build_chunks(book)
-    total = len(chunks)
+    parts = engine.run_chunks(
+        "translate",
+        [(c["key"], c) for c in chunks],
+        lambda chunk: translate_chunk(engine, system, chunk, synopses, book),
+    )
     draft: dict[str, str] = {}
-    for idx, chunk in enumerate(chunks):
-        engine.checkpoint_wait()
-        if job.has_chunk("translate", chunk["key"]):
-            part = job.load_chunk("translate", chunk["key"])
-        else:
-            part = translate_chunk(engine, system, chunk, synopses, book)
-            job.save_chunk("translate", chunk["key"], part)
-        draft.update(part)
-        engine.report("translate", idx + 1, total)
+    for c in chunks:
+        draft.update(parts[c["key"]])
     job.write_json("draft.json", draft)
     return draft

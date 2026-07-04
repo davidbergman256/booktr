@@ -13,6 +13,9 @@ def test_heading_detection():
     assert looks_like_heading("Kapitola 3")
     assert looks_like_heading("XIV.")
     assert not looks_like_heading("It was a dark and stormy night, and the rain fell in torrents.")
+    # křičená přímá řeč není nadpis (chytáno na Alence: „ČISTÍ BOTY A STŘEVÍCE!“)
+    assert not looks_like_heading("“HE POLISHES BOOTS AND SHOES!”")
+    assert not looks_like_heading('"SOUP OF THE EVENING!"')
 
 
 def test_build_book_assigns_stable_ids():

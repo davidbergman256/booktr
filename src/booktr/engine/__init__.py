@@ -7,11 +7,14 @@ from __future__ import annotations
 
 import logging
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from ..errors import BookTrError, categorize
 
 log = logging.getLogger("booktr.engine")
+
+MAX_WORKERS = 4  # souběžná API volání; víc naráží na rate limity nižších tierů
 
 # (fáze, výstupní artefakt) — typeset nemá artefakt, výsledné PDF leží mimo job dir
 STAGES: list[tuple[str, str | None]] = [
@@ -43,6 +46,43 @@ class Engine:
     def checkpoint_wait(self) -> None:
         """Mezi chunky: tady je bezpečné pauznout."""
         self.pause_event.wait()
+
+    def run_chunks(self, stage: str, items: list[tuple[str, object]], work) -> dict:
+        """Souběžné zpracování nezávislých chunků s checkpointy po každém.
+
+        items: (klíč, vstup); work(vstup) -> data (jen API volání — žádné sdílené
+        mutace, pypdfium2 sem nepatří). Hotové chunky se přeskočí. Výjimka
+        kteréhokoli chunku shodí celou fázi (a checkpointy zachovají zbytek).
+        """
+        results: dict[str, object] = {}
+        todo: list[tuple[str, object]] = []
+        for key, item in items:
+            if self.job.has_chunk(stage, key):
+                results[key] = self.job.load_chunk(stage, key)
+            else:
+                todo.append((key, item))
+
+        total = len(items)
+        lock = threading.Lock()
+        done = len(results)
+        self.report(stage, done, total)
+
+        def one(key: str, item: object):
+            self.checkpoint_wait()
+            data = work(item)
+            self.job.save_chunk(stage, key, data)
+            return key, data
+
+        if todo:
+            with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+                futures = [pool.submit(one, k, it) for k, it in todo]
+                for fut in as_completed(futures):
+                    key, data = fut.result()
+                    with lock:
+                        results[key] = data
+                        done += 1
+                        self.report(stage, done, total)
+        return results
 
     # ---- běh ------------------------------------------------------------------
     def run(self) -> Path:
