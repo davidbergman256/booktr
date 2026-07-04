@@ -16,6 +16,22 @@ def test_heading_detection():
     # křičená přímá řeč není nadpis (chytáno na Alence: „ČISTÍ BOTY A STŘEVÍCE!“)
     assert not looks_like_heading("“HE POLISHES BOOTS AND SHOES!”")
     assert not looks_like_heading('"SOUP OF THE EVENING!"')
+    # ani když ji OCR omylem označí jako ## nadpis — věta pokračuje za vykřičníkem
+    assert not looks_like_heading("## IT DOES THE BOOTS AND SHOES! ' the Gryphon replied.")
+    assert looks_like_heading("## CHAPTER XI. Who Stole the Tarts?")
+
+
+def test_paragraph_split_by_page_break_is_rejoined():
+    pages = [
+        "## One\n\nFirst paragraph starts here and",
+        "continues on the next page.\n\nSecond paragraph.",
+    ]
+    book = build_book(pages, title="T")
+    paras = [p["text"] for p in book["chapters"][0]["paragraphs"]]
+    assert paras == [
+        "First paragraph starts here and continues on the next page.",
+        "Second paragraph.",
+    ]
 
 
 def test_build_book_assigns_stable_ids():

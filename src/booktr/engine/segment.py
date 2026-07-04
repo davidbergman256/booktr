@@ -47,7 +47,8 @@ def looks_like_heading(paragraph: str) -> bool:
     if len(p) > 80:
         return False
     if p.startswith("## "):
-        return True
+        # OCR občas označí křičenou větu jako nadpis; věta pokračující za ! nebo ? nadpis není
+        return not re.search(r"[!?]['’”\"]?\s+\S", p[3:])
     if p[:1] in _QUOTES:
         return False  # citovaná řeč — i křičená VELKÝMI PÍSMENY není nadpis
     if _CHAPTER_RE.match(p):
@@ -71,14 +72,22 @@ def build_book(pages: list[str], title: str, source_lang: str = "unknown") -> di
         chapters.append(current)
 
     for page in pages:
+        first_in_page = True
         for para in split_paragraphs(page):
             if looks_like_heading(para):
                 new_chapter(para)
+                first_in_page = False
                 continue
             if current is None:
                 new_chapter("")  # text před první kapitolou
                 current["heading"] = ""
-            current["paragraphs"].append({"id": "", "text": para})
+            para = para.lstrip("# ").strip()  # zamítnutý ## nadpis je běžný odstavec
+            if first_in_page and current["paragraphs"] and para[:1].islower():
+                # odstavec rozříznutý koncem stránky — pokračování malým písmenem
+                current["paragraphs"][-1]["text"] += " " + para
+            else:
+                current["paragraphs"].append({"id": "", "text": para})
+            first_in_page = False
 
     chapters = [ch for ch in chapters if ch["paragraphs"]]
     if not chapters:

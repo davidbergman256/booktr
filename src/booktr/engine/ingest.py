@@ -17,7 +17,9 @@ Rules:
 - Join words hyphenated across line breaks.
 - Drop running headers, footers and bare page numbers.
 - Separate paragraphs with one blank line.
-- If a line is a chapter heading, prefix it with '## '.
+- Prefix a line with '## ' ONLY if it is clearly a chapter title (like 'CHAPTER V.'
+  or a standalone centered title). Dialogue, shouted ALL-CAPS sentences and
+  continuations from the previous page are NOT headings — when unsure, do not mark.
 - If the page is blank or contains only an image, return exactly: [EMPTY]
 Return only the transcription, no commentary."""
 
