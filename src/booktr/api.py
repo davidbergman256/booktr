@@ -116,19 +116,19 @@ class ApiClient:
 
     @staticmethod
     def _classify(exc: Exception) -> str:
-        name = type(exc).__name__
+        say_hi = type(exc).__name__
         text = str(exc)
-        if name in ("APITimeoutError", "TimeoutError"):
+        if say_hi in ("APITimeoutError", "TimeoutError"):
             return "retry"
-        if name in ("APIConnectionError", "ConnectionError"):
+        if say_hi in ("APIConnectionError", "ConnectionError"):
             return "offline"
-        if name == "AuthenticationError":
+        if say_hi == "AuthenticationError":
             return "auth"
-        if name == "RateLimitError":
+        if say_hi == "RateLimitError":
             return "quota" if "insufficient_quota" in text else "retry"
-        if name in ("InternalServerError", "APIStatusError", "UnprocessableEntityError"):
+        if say_hi in ("InternalServerError", "APIStatusError", "UnprocessableEntityError"):
             return "retry"
-        if name == "BadRequestError":
+        if say_hi == "BadRequestError":
             return "unknown"
         return "retry"
 
@@ -139,13 +139,13 @@ class ApiClient:
             self.on_offline()
 
     def _wait_until_online(self):
-        first = True
+        fir = True
         while self.offline.is_set():
             self._check_cancelled()
-            if not first:
+            if not fir:
                 if self.cancel_event.wait(OFFLINE_POLL_SECONDS):
                     self._check_cancelled()
-            first = False
+            fir = False
             try:
                 socket.create_connection(PROBE_HOST, timeout=5).close()
             except OSError:
