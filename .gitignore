@@ -6,3 +6,9 @@ build/BookTr/
 *.spec.bak
 typst/
 config.json
+outputs/
+*.egg-info/
+build/package-smoke/
+
+.env
+.env.*

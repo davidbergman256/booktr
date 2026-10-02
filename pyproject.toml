@@ -1,12 +1,20 @@
 [project]
 name = "booktr"
-version = "0.1.0"
+version = "0.2.0"
 description = "Překlad knih do češtiny — jednoduchá aplikace pro tátu"
 requires-python = ">=3.11"
 dependencies = [
-    "openai>=1.40",
+    "openai>=2.0",
     "pypdfium2>=4.30",
     "pillow>=10",
+    "pdfplumber>=0.11",
+    "customtkinter>=5.2",
+    "httpx>=0.27",
+    "google-auth>=2.34",
+    "requests>=2.32",
+    "typst>=0.13",
+    "imageio-ffmpeg>=0.6",
+    "python-dotenv>=1.0",
 ]
 
 [project.optional-dependencies]
