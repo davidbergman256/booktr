@@ -1,7 +1,10 @@
 """Offline distribution smoke test: packaged assets, native PDF and M4B tools."""
 from __future__ import annotations
 
+import json
+import os
 import tempfile
+from unittest.mock import patch
 from pathlib import Path
 
 from PIL import Image
@@ -14,10 +17,38 @@ from .engine.typeset import run as typeset
 from .state import Job
 
 
+def _configuration_self_test(directory: Path) -> None:
+    """Exercise the packaged loader in isolation from every real account."""
+    from . import config
+
+    private_dir = directory / 'private-config'
+    private_dir.mkdir()
+    config_file = private_dir / 'config.json'
+    config_file.write_text(json.dumps({'openai_api_key': 'json-selftest-value', 'font_size': 16}),
+                           encoding='utf-8')
+    synthetic = {'OPENAI_API_KEY': 'dotenv-selftest-openai', 'GOOGLE_API_KEY': 'dotenv-selftest-google',
+                 'ELEVENLABS_API_KEY': 'dotenv-selftest-eleven', 'ELEVENLABS_VOICE_ID': 'selftest-narrator'}
+    (private_dir / '.env').write_text(''.join(f'{key}={value}\n' for key, value in synthetic.items()),
+                                    encoding='utf-8')
+    environment = {'BOOKTR_CONFIG_FILE': str(config_file)}
+    # mock restores the original environment and app-folder function even when
+    # an assertion fails. Only synthetic files are opened during this scope.
+    with patch.dict(os.environ, environment, clear=True), patch.object(config, 'app_dir', return_value=private_dir):
+        loaded = config.load_config()
+        assert loaded.openai_api_key == synthetic['OPENAI_API_KEY'], 'Private dotenv did not load'
+        assert loaded.google_api_key == synthetic['GOOGLE_API_KEY'], 'Google dotenv credential did not load'
+        assert loaded.elevenlabs_api_key == synthetic['ELEVENLABS_API_KEY'], 'ElevenLabs dotenv credential did not load'
+        assert loaded.elevenlabs_voice_id == synthetic['ELEVENLABS_VOICE_ID']
+        assert loaded.font_size == 16, 'Private JSON reader settings changed'
+        assert dict(os.environ) == environment, 'Configuration mutated the process environment'
+        assert all(value not in repr(loaded) for key, value in synthetic.items() if key.endswith('_API_KEY'))
+
+
 def run() -> Path:
     import customtkinter  # Packaging must carry both theme and font resources.
     assert customtkinter.ThemeManager.theme
     directory = Path(tempfile.mkdtemp(prefix='booktr-selftest-'))
+    _configuration_self_test(directory)
     job = Job(directory / 'job')
     job.set_progress(title='Kontrola BookTr')
     assets = job.dir / 'assets'

@@ -84,7 +84,8 @@ class HttpProvider:
                 delay = _retry_delay(response.headers.get("retry-after"), attempt)
                 self._wait(delay)
                 continue
-            code = "auth" if response.status_code in (401, 403) else "quota" if response.status_code == 429 else "unknown"
+            code = {401: "auth", 403: "auth", 402: "audio_payment", 429: "quota"}.get(
+                response.status_code, "unknown")
             raise BookTrError(code, f"Speech service returned HTTP {response.status_code}")
         raise AssertionError("unreachable")
 

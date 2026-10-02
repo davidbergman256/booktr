@@ -205,6 +205,50 @@ def test_provider_auth_error_does_not_retry_or_echo_secret():
     assert len(calls) == 1
 
 
+@pytest.mark.parametrize("status, code, attempts", [
+    (401, "auth", 1),
+    (403, "auth", 1),
+    (402, "audio_payment", 1),
+    (429, "quota", 6),
+    (500, "unknown", 6),
+    (400, "unknown", 1),
+])
+def test_speech_payment_classification_preserves_retries_and_hides_provider_body(
+        status, code, attempts, caplog):
+    calls, waits = [], []
+    secret, prose = "private-test-key", "Soukromý testovací odstavec."
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(status, headers={"retry-after": "0"}, json={
+            "detail": {"status": "payment_required", "message": f"Account data: {secret}; book: {prose}"},
+        })
+
+    config = SimpleNamespace(elevenlabs_api_key=secret, elevenlabs_voice_id="narrator")
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        with pytest.raises(BookTrError) as error:
+            ElevenLabsProvider(config, client=client, sleep=waits.append).synthesize(prose)
+    assert error.value.code == code
+    assert error.value.detail == f"Speech service returned HTTP {status}"
+    assert len(calls) == attempts and len(waits) == attempts - 1
+    assert secret not in str(error.value) + caplog.text
+    assert prose not in str(error.value) + caplog.text
+
+
+def test_speech_payment_error_has_czech_settings_guidance_and_retry_action():
+    from booktr.config import Config
+    from booktr.errors import action_label, categorize, friendly_message
+    from booktr import strings_cs
+
+    error = BookTrError("audio_payment", "Speech service returned HTTP 402")
+    message = friendly_message(error, Config(helper_name="David", helper_phone="123"))
+    assert categorize(error) is error
+    assert "Nastavení" in message and "Normální" in message
+    assert "placen" in message and "David 123" in message
+    assert "HTTP" not in message and "402" not in message
+    assert action_label(error) == strings_cs.RETRY
+
+
 def test_paused_audio_can_be_cancelled_without_resume(job, tmp_path, monkeypatch):
     monkeypatch.setattr("booktr.audio.service.find_ffmpeg", lambda: None)
     validated, cancelled, paused = threading.Event(), threading.Event(), threading.Event()

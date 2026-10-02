@@ -41,6 +41,7 @@ QUIT = "Zavřít"
 ERRORS = {
     "cancelled": "Práci jsme zastavili. Hotové části jsou uložené a můžete pokračovat.",
     "audio_config": "Hlas audioknihy ještě není nastavený.\nZavolejte prosím: {helper_name} {helper_phone}",
+    "audio_payment": "Pro zvolený hlas je potřeba placený tarif nebo kredit služby.\nV Nastavení můžete zkusit Normální hlas.\nPřípadně zavolejte: {helper_name} {helper_phone}",
     "auth": "Program se nemůže přihlásit ke službě.\nZavolejte prosím: {helper_name} {helper_phone}",
     "quota": "Služba je momentálně vyčerpaná.\nZavolejte prosím: {helper_name} {helper_phone}",
     "config": "Program ještě není nastavený.\nPožádejte prosím o pomoc toho, kdo vám program nainstaloval.",
@@ -55,6 +56,7 @@ ERRORS = {
 ERROR_ACTIONS = {
     "cancelled": RETRY,
     "audio_config": RETRY,
+    "audio_payment": RETRY,
     "auth": RETRY,
     "quota": RETRY,
     "config": RETRY,

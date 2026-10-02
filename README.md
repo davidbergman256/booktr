@@ -44,8 +44,12 @@ update those two model fields and reasoning settings to use the new defaults.
 
 The installed app reads `%APPDATA%\BookTr\config.json` on Windows or
 `~/Library/Application Support/BookTr/config.json` on macOS. `--config` and
-`BOOKTR_CONFIG_FILE` select another private file. Reader preferences are stored
-separately and never contain keys.
+`BOOKTR_CONFIG_FILE` select another private file. The app and cloud setup script
+also read `.env` from that platform's BookTr application folder;
+`BOOKTR_ENV_FILE` selects another private credentials file. Process environment
+values override `.env`, which overrides credential fields in `config.json`.
+Keep credentials outside the checkout. Reader preferences are stored separately
+and never contain keys.
 
 ```sh
 python -m booktr --headless book.pdf --config config.json --font-size 18

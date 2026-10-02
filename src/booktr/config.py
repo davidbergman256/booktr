@@ -116,6 +116,26 @@ _TEMPLATE = {
 }
 
 
+def env_path() -> Path:
+    """Use one explicitly selected private file, never search the checkout."""
+    if path := os.environ.get("BOOKTR_ENV_FILE"):
+        return Path(path).expanduser()
+    return app_dir() / ".env"
+
+
+def _private_env_values() -> dict[str, str | None]:
+    from dotenv import dotenv_values
+
+    try:
+        path = env_path()
+        if not path.exists():
+            return {}
+        return dotenv_values(path, interpolate=False, encoding="utf-8-sig")
+    except (OSError, UnicodeError):
+        # Decoder/OSError messages can contain private file contents or paths.
+        raise BookTrError("config", "unreadable private environment file") from None
+
+
 def load_config(validate: bool = True) -> Config:
     path = config_path()
     if not path.is_file():
@@ -140,9 +160,12 @@ def load_config(validate: bool = True) -> Config:
         "google_api_key": "GOOGLE_API_KEY", "elevenlabs_api_key": "ELEVENLABS_API_KEY",
         "elevenlabs_voice_id": "ELEVENLABS_VOICE_ID",
     }
+    private_env = _private_env_values()
     for name, env_name in env_fields.items():
-        if value := os.environ.get(env_name):
-            kwargs[name] = value
+        if env_name in os.environ:
+            kwargs[name] = os.environ[env_name]
+        elif private_env.get(env_name) is not None:
+            kwargs[name] = private_env[env_name]
     prefs_path = app_dir() / "preferences.json"
     if prefs_path.exists():
         try:

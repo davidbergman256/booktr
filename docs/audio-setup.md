@@ -4,6 +4,33 @@ BookTr's Normal mode uses Google Cloud `cs-CZ-Chirp3-HD-Gacrux`. Advanced uses
 ElevenLabs `eleven_v4` through `POST /v1/text-to-dialogue`, with one chosen Czech
 narrator. It does not silently substitute an older ElevenLabs model.
 
+## Private credentials
+
+The desktop app and `scripts/cloud_setup.py` automatically read a private `.env`
+file from `%APPDATA%\BookTr\.env` on Windows,
+`~/Library/Application Support/BookTr/.env` on macOS, or `~/.booktr/.env` on Linux.
+Set `BOOKTR_ENV_FILE` to choose another private file. The app does not search the
+checkout for credentials. Keep this file outside the repository; on macOS/Linux,
+restrict it to its owner with `chmod 600`.
+
+Supported entries are:
+
+```dotenv
+OPENAI_API_KEY=your-translation-key
+GOOGLE_API_KEY=your-restricted-speech-key
+GOOGLE_CLOUD_PROJECT=your-google-project
+ELEVENLABS_API_KEY=your-restricted-elevenlabs-key
+ELEVENLABS_VOICE_ID=your-czech-narrator-id
+```
+
+`GOOGLE_APPLICATION_CREDENTIALS` can point to a private service-account JSON file
+instead of using a Google API key. Process environment values take priority over
+`.env`, and `.env` takes priority over provider fields in the selected private
+`config.json`. An explicit empty value clears a lower-priority value; an entry
+without `=` is ignored. Values are literal: `${...}` is never expanded. Loading
+this file does not change the process environment or write credentials into
+reader preferences. Other configuration fields remain in `config.json`.
+
 ## Google Cloud
 
 Use an existing project with billing enabled. Enable `texttospeech.googleapis.com`.
@@ -50,6 +77,12 @@ Choose a Czech narrator from the voice library, audition it, and set
 `elevenlabs_api_key` and `elevenlabs_voice_id` in private config, or set
 `ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID`. Leave `elevenlabs_model` as
 `eleven_v4`. Validation checks that this account can use that exact model and voice.
+
+Library voices can require a paid plan even when voice/model lookup succeeds.
+A speech HTTP 402 now explains this in Czech and suggests **Nastavení → Normální**.
+The included multilingual narrator George (`JBFqnCBsd6RMkjVDRZzb`) can generate
+Czech with v4 within the account’s available allowance. A full book needs enough
+included or purchased credits; BookTr does not purchase plans or credits automatically.
 
 ```sh
 python scripts/cloud_setup.py --config config.json --provider elevenlabs
