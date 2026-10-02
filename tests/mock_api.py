@@ -29,7 +29,18 @@ class MockApi:
         if tag == "HEADINGS":
             current = _paragraphs_from(user, "CURRENT CZECH_JSON:")
             return json.dumps({**current, **self.heading_changes}, ensure_ascii=False)
-        if tag == "STYLESHEET":
+        if tag == "STYLE_GUIDE":
+            return json.dumps({"style": "Test narrative style.", "character_context": "Alice is a character."})
+        if tag == "STYLE_REDUCE" and "CANONICAL_EVIDENCE_JSON:" in user:
+            evidence = _paragraphs_from(user, "CANONICAL_EVIDENCE_JSON:")
+            return json.dumps({
+                "glossary": [{"term": group["term"], "czech": group["candidates"][0]["czech"],
+                              "note": "Synthetic canonical guidance."} for group in evidence["glossary"]],
+                "register": [{"pair": group["pair"], "form": group["candidates"][0]["form"],
+                              "note": "Synthetic canonical guidance."} for group in evidence["register"]],
+                "style": "Test narrative style.",
+            })
+        if tag in ("STYLESHEET", "STYLE_REDUCE"):
             return json.dumps({
                 "synopsis": "Shrnutí kapitoly.",
                 "glossary": [{"term": "Alice", "czech": "Alice (2. p. Alice)"}],

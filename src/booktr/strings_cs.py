@@ -20,10 +20,11 @@ STAGE_LABELS = {
     "ingest": "Čtu knihu… (strana {cur} z {tot})",
     "segment": "Připravuji text…",
     "stylesheet": "Připravuji se na překlad… (kapitola {cur} z {tot})",
-    "translate": "Překládám… (část {cur} z {tot})",
+    "translate": "Překládám a kontroluji… (část {cur} z {tot})",
     "review": "Kontroluji překlad… (část {cur} z {tot})",
     "merge": "Skládám knihu dohromady…",
     "typeset": "Sázím knihu do PDF…",
+    "audio": "Vytvářím audioknihu… (část {cur} z {tot})",
 }
 
 # Obrazovka 3 — hotovo
@@ -38,8 +39,10 @@ PICK_OTHER = "Vybrat jinou knihu"
 QUIT = "Zavřít"
 
 ERRORS = {
-    "auth": "Program se nemůže přihlásit ke službě překladu.\nZavolejte prosím: {helper_name} {helper_phone}",
-    "quota": "Služba překladu je momentálně vyčerpaná.\nZavolejte prosím: {helper_name} {helper_phone}",
+    "cancelled": "Práci jsme zastavili. Hotové části jsou uložené a můžete pokračovat.",
+    "audio_config": "Hlas audioknihy ještě není nastavený.\nZavolejte prosím: {helper_name} {helper_phone}",
+    "auth": "Program se nemůže přihlásit ke službě.\nZavolejte prosím: {helper_name} {helper_phone}",
+    "quota": "Služba je momentálně vyčerpaná.\nZavolejte prosím: {helper_name} {helper_phone}",
     "config": "Program ještě není nastavený.\nPožádejte prosím o pomoc toho, kdo vám program nainstaloval.",
     "bad_pdf": "Tento soubor se nepodařilo přečíst.\nZkuste prosím jiný soubor s knihou.",
     "disk_full": "Na počítači není dost místa.\nSmažte prosím nepotřebné soubory, nebo zavolejte: {helper_name}",
@@ -50,6 +53,8 @@ ERRORS = {
 
 # Akce nabízená u jednotlivých chyb
 ERROR_ACTIONS = {
+    "cancelled": RETRY,
+    "audio_config": RETRY,
     "auth": RETRY,
     "quota": RETRY,
     "config": RETRY,
