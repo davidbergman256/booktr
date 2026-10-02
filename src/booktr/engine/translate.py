@@ -6,7 +6,7 @@ import logging
 
 from ..errors import BookTrError
 from .checkpoints import checkpoint_key, model_settings
-from .validation import parse_text_map, validate_text_map
+from .validation import immutable_source_entries, normalize_cached_text_map, parse_text_map, validate_text_map
 
 log = logging.getLogger("booktr.translate")
 MAX_CHUNK_WORDS = 1200
@@ -95,12 +95,21 @@ def chunk_user_prompt(chunk: dict, synopses: dict, book: dict) -> str:
 
 def translate_chunk(engine, system: str, chunk: dict, synopses: dict, book: dict, depth: int = 0) -> dict:
     source = {p["id"]: p["text"] for p in chunk["paragraphs"]}
+    immutable = immutable_source_entries(source)
+    mutable = {key: text for key, text in source.items() if key not in immutable}
+    if not mutable:
+        return validate_text_map(source, immutable)
+    # Keep original IDs and exact symbols outside the model's editable input.
+    # A model may otherwise omit a standalone closing bracket, forcing retries
+    # or silently damaging the original punctuation without this contract.
+    chunk = {**chunk, "paragraphs": [p for p in chunk["paragraphs"] if p["id"] in mutable]}
     user = chunk_user_prompt(chunk, synopses, book)
     last_error = ""
     for attempt in range(2):
         raw = engine.api.complete(engine.config.model_draft, system, user, json_mode=True)
         try:
-            return validate_text_map(source, parse_text_map(raw))
+            translated = validate_text_map(mutable, parse_text_map(raw))
+            return validate_text_map(source, {**immutable, **translated})
         except (ValueError, TypeError) as exc:
             last_error = str(exc)
             log.warning("translation %s attempt %d: %s", chunk["key"], attempt + 1, exc)
@@ -109,8 +118,9 @@ def translate_chunk(engine, system: str, chunk: dict, synopses: dict, book: dict
         mid = len(chunk["paragraphs"]) // 2
         first = {**chunk, "paragraphs": chunk["paragraphs"][:mid], "context_after": _neighbor_text(chunk["paragraphs"][mid:])}
         second = {**chunk, "paragraphs": chunk["paragraphs"][mid:], "context_before": _neighbor_text(chunk["paragraphs"][:mid], tail=True)}
-        return {**translate_chunk(engine, system, first, synopses, book, depth + 1),
-                **translate_chunk(engine, system, second, synopses, book, depth + 1)}
+        translated = {**translate_chunk(engine, system, first, synopses, book, depth + 1),
+                      **translate_chunk(engine, system, second, synopses, book, depth + 1)}
+        return validate_text_map(source, {**immutable, **translated})
     raise BookTrError("unknown", f"Translation validation failed for {chunk['key']}: {last_error}")
 
 
@@ -123,7 +133,11 @@ def run(engine):
     chunks = build_chunks(book, getattr(engine.config, "chunk_words", MAX_CHUNK_WORDS))
     keyed = [(checkpoint_key(c["key"], model_settings(engine.config, engine.config.model_draft), system,
                              chunk_user_prompt(c, synopses, book)), c) for c in chunks]
-    parts = engine.run_chunks("translate", keyed, lambda c: translate_chunk(engine, system, c, synopses, book))
+    parts = engine.run_chunks(
+        "translate", keyed, lambda c: translate_chunk(engine, system, c, synopses, book),
+        validate=lambda c, data: validate_text_map({p["id"]: p["text"] for p in c["paragraphs"]}, data),
+        normalize=lambda c, data: normalize_cached_text_map({p["id"]: p["text"] for p in c["paragraphs"]}, data),
+    )
     draft = {key: value for cache_key, _ in keyed for key, value in parts[cache_key].items()}
     job.write_json("draft.json", draft)
     return draft

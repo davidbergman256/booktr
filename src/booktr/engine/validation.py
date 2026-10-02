@@ -5,6 +5,30 @@ import json
 import re
 
 FOOTNOTE_MARKER = re.compile(r"\[\[FN:([^\]\s]+)\]\]")
+CONTRACT_VERSION = "source-text-v3"
+
+
+def immutable_source_entries(source: dict[str, str]) -> dict[str, str]:
+    """Numbers, punctuation and opaque note anchors need exact copying, not inference."""
+    return {key: text for key, text in source.items()
+            if not any(char.isalpha() for char in FOOTNOTE_MARKER.sub("", text))}
+
+
+def normalize_cached_text_map(source: dict[str, str], output: dict, *, partial: bool = False) -> dict:
+    """Migrate only source-authoritative constants; never rewrite cached prose.
+
+    Previous models could add whitespace or change a punctuation-only entry. Its
+    current original is the complete answer, so restoring it requires no new
+    inference. Unknown/missing IDs and every alphabetic entry still pass the full
+    strict contract; this migration is used only while loading old checkpoints.
+    """
+    if not isinstance(output, dict):
+        raise ValueError("translation must be an ID-to-text object")
+    normalized = dict(output)
+    for key, text in immutable_source_entries(source).items():
+        if key in normalized:
+            normalized[key] = text
+    return validate_text_map(source, normalized, partial=partial)
 
 
 def parse_text_map(raw: str) -> dict[str, str]:
@@ -35,11 +59,14 @@ def validate_text_map(source: dict[str, str], output: dict[str, str], *, partial
     missing = set(source) - set(output) if not partial else set()
     if extra or missing:
         raise ValueError(f"ID mismatch: missing={sorted(missing)[:8]}, extra={sorted(extra)[:8]}")
+    immutable = immutable_source_entries(source)
     for key, translated in output.items():
         if not isinstance(translated, str) or not translated.strip():
             raise ValueError(f"empty or non-text translation for {key}")
         if FOOTNOTE_MARKER.findall(source[key]) != FOOTNOTE_MARKER.findall(translated):
             raise ValueError(f"footnote markers changed in {key}; copy every [[FN:id]] exactly")
+        if key in immutable and translated != source[key]:
+            raise ValueError(f"nonlinguistic source changed in {key}; preserve it verbatim")
     return output
 
 

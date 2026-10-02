@@ -8,7 +8,7 @@ from __future__ import annotations
 from ..errors import BookTrError
 from . import review, translate
 from .checkpoints import cached_call, checkpoint_key, model_settings
-from .validation import source_entries, validate_text_map
+from .validation import normalize_cached_text_map, source_entries, validate_text_map
 
 
 def run(engine):
@@ -41,11 +41,13 @@ def run(engine):
         draft_key = checkpoint_key(chunk["key"], draft_system, draft_settings, context)
         draft = cached_call(engine, "translate", draft_key,
                             lambda: translate.translate_chunk(engine, draft_system, chunk, synopses, book),
-                            lambda data: validate_text_map(original, data))
+                            lambda data: validate_text_map(original, data),
+                            normalize=lambda data: normalize_cached_text_map(original, data))
         review_key = checkpoint_key(chunk["key"], review_system, review_settings, context, draft)
         patches = cached_call(engine, "review", review_key,
                               lambda: review.review_chunk(engine, review_system, chunk, draft, context),
-                              lambda data: validate_text_map(original, data, partial=True))
+                              lambda data: validate_text_map(original, data, partial=True),
+                              normalize=lambda data: normalize_cached_text_map(original, data, partial=True))
         return {"draft": draft, "patches": patches}
 
     # One worker performs one API call at a time; the total draft+review request
@@ -55,7 +57,12 @@ def run(engine):
         validate_text_map(original, data["draft"])
         validate_text_map(original, data["patches"], partial=True)
 
-    parts = engine.run_chunks("translate", keyed, work, validate=validate_chunk)
+    def normalize_chunk(chunk, data):
+        original = {p["id"]: p["text"] for p in chunk["paragraphs"]}
+        return {**data, "draft": normalize_cached_text_map(original, data["draft"]),
+                "patches": normalize_cached_text_map(original, data["patches"], partial=True)}
+
+    parts = engine.run_chunks("translate", keyed, work, validate=validate_chunk, normalize=normalize_chunk)
     draft: dict[str, str] = {}
     patches: dict[str, str] = {}
     for key, _ in keyed:

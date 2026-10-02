@@ -249,6 +249,12 @@ def reduce_profiles(engine, profiles: list[dict], title: str) -> dict:
     return canonical
 
 
+def profile_user(book: dict, chunk: dict) -> str:
+    """The exact model input also serves as the source-profile cache identity."""
+    text = "\n\n".join(p["text"] for p in chunk["paragraphs"])
+    return f"SOURCE LANGUAGE: {book.get('source_lang', 'unknown')}\nCHAPTER {chunk['chapter']} ({chunk['heading']}):\n{text}"
+
+
 def run(engine):
     job = engine.job
     book = job.read_json("book.json")
@@ -261,18 +267,18 @@ def run(engine):
     for chapter in book["chapters"]:
         for chunk in _pack(chapter["paragraphs"], chapter["id"], PROFILE_WORDS):
             chunk["heading"] = chapter.get("heading", "")
-            key = checkpoint_key(chunk["key"], SYSTEM, model_settings(engine.config, engine.config.model_draft), chunk)
+            key = checkpoint_key(chunk["key"], SYSTEM, model_settings(engine.config, engine.config.model_draft),
+                                 profile_user(book, chunk))
             items.append((key, chunk))
     # Footnotes often explain names and historical references and must inform memory.
     notes = [{"id": n["id"], "text": n["text"]} for n in book.get("footnotes", [])]
     for chunk in _pack(notes, "footnotes", PROFILE_WORDS):
         chunk["heading"] = "Original author footnotes"
-        items.append((checkpoint_key(chunk["key"], SYSTEM, model_settings(engine.config, engine.config.model_draft), chunk), chunk))
+        items.append((checkpoint_key(chunk["key"], SYSTEM, model_settings(engine.config, engine.config.model_draft),
+                                     profile_user(book, chunk)), chunk))
 
     def profile(chunk):
-        text = "\n\n".join(p["text"] for p in chunk["paragraphs"])
-        user = f"SOURCE LANGUAGE: {book.get('source_lang', 'unknown')}\nCHAPTER {chunk['chapter']} ({chunk['heading']}):\n{text}"
-        return _complete_profile(engine, SYSTEM, user)
+        return _complete_profile(engine, SYSTEM, profile_user(book, chunk))
 
     parts = engine.run_chunks("stylesheet", items, profile,
                               validate=lambda chunk, data: _validate_profile(data))

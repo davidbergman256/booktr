@@ -6,10 +6,12 @@ from __future__ import annotations
 
 import logging
 import json
+import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from ..errors import BookTrError
@@ -170,10 +172,18 @@ def run(engine) -> Path:
 
     cfg.output_path.mkdir(parents=True, exist_ok=True)
     dest = cfg.output_path / f"Kniha – {safe_filename(book.get('title', 'kniha'))} (česky).pdf"
+    publication_tmp = None
     try:
-        shutil.copyfile(out_tmp, dest)
+        with tempfile.NamedTemporaryFile(prefix=".booktr-", suffix=".pdf", dir=dest.parent,
+                                         delete=False) as pending:
+            publication_tmp = Path(pending.name)
+        shutil.copyfile(out_tmp, publication_tmp)
+        os.replace(publication_tmp, dest)
     except PermissionError as exc:
         raise BookTrError("output_locked", str(exc)) from exc
+    finally:
+        if publication_tmp is not None:
+            publication_tmp.unlink(missing_ok=True)
 
     engine.report("typeset", 1, 1)
     log.info("book written to %s", dest)

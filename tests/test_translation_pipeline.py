@@ -289,3 +289,152 @@ def test_profile_repair_includes_bad_response_and_exact_contract(fake_engine):
     diagnostics = list((fake_engine.job.dir / "chunks").glob("diagnostic-profile-invalid-*.json"))
     assert len(diagnostics) == 1
     assert json.loads(diagnostics[0].read_text())["raw_response"] == json.dumps(broken)
+
+
+def test_punctuation_and_marker_only_source_entries_survive_models_that_drop_them(fake_engine):
+    from booktr.engine import review
+
+    chunk = {"key": "punctuation", "chapter": "ch01", "paragraphs": [
+        {"id": "prose", "text": "Original prose."},
+        {"id": "closing", "text": "]"},
+        {"id": "date", "text": "1842."},
+        {"id": "anchor", "text": "[[FN:fn-1]]"},
+    ]}
+    book = {"source_lang": "en", "chapters": [{"id": "ch01", "paragraphs": []}]}
+
+    class ProseOnlyApi:
+        calls = []
+
+        def complete(self, model, system, user, **kwargs):
+            self.calls.append(system)
+            marker = "SOURCE PARAGRAPHS_JSON:" if system.startswith("[REVIEW]") else "PARAGRAPHS_JSON:"
+            requested = _paragraphs_from(user, marker)
+            # Models must never get the punctuation-only IDs as editable entries.
+            assert requested == {"prose": "Original prose."}
+            return json.dumps({"prose": "Upravený český text." if system.startswith("[REVIEW]") else "Český text."})
+
+    fake_engine.api = ProseOnlyApi()
+    draft = translate.translate_chunk(fake_engine, "[TRANSLATE]", chunk, {}, book)
+    assert draft == {"prose": "Český text.", "closing": "]", "date": "1842.", "anchor": "[[FN:fn-1]]"}
+    patches = review.review_chunk(fake_engine, "[REVIEW]", chunk, draft)
+    assert patches == {"prose": "Upravený český text."}
+    assert len(fake_engine.api.calls) == 2
+
+
+def test_nonlinguistic_chunk_requires_no_translation_or_editor_request(fake_engine):
+    from booktr.engine import review
+
+    chunk = {"key": "punctuation", "chapter": "ch01", "paragraphs": [
+        {"id": "closing", "text": "]"}, {"id": "anchor", "text": "[[FN:fn-1]] 1842."},
+    ]}
+    book = {"chapters": [{"id": "ch01", "paragraphs": []}]}
+    draft = translate.translate_chunk(fake_engine, "[TRANSLATE]", chunk, {}, book)
+    assert draft == {"closing": "]", "anchor": "[[FN:fn-1]] 1842."}
+    assert review.review_chunk(fake_engine, "[REVIEW]", chunk, draft) == {}
+    assert fake_engine.api.calls == []
+
+
+def test_editor_still_reviews_complete_author_note_text(fake_engine):
+    from booktr.engine import review
+
+    chunk = {"key": "footnotes", "chapter": "footnotes", "kind": "footnotes", "paragraphs": [
+        {"id": "fn-1", "text": "The original author explains the historical event of 1842."},
+    ]}
+    book = {"chapters": []}
+    draft = translate.translate_chunk(fake_engine, "[TRANSLATE]", chunk, {}, book)
+    assert draft["fn-1"].endswith(chunk["paragraphs"][0]["text"])
+    review.review_chunk(fake_engine, "[REVIEW]", chunk, draft)
+    assert fake_engine.api.call_count("TRANSLATE") == 1
+    assert fake_engine.api.call_count("REVIEW") == 1
+
+
+def test_nonlinguistic_source_changes_in_cached_output_are_rejected():
+    from booktr.engine.validation import validate_text_map
+
+    with pytest.raises(ValueError, match="nonlinguistic source"):
+        validate_text_map({"punct": "]"}, {"punct": """Omitted bracket replaced with words."""})
+
+
+def test_numeric_book_title_is_preserved_during_heading_harmonization(fake_engine):
+    from booktr.engine import review
+
+    assert review.harmonize_headings(fake_engine, [("book-title", "1984"), ("h", "1")],
+                                    {"book-title": "1984", "h": "1"}) == {}
+    assert fake_engine.api.calls == []
+
+
+def test_cached_nonlinguistic_migration_preserves_paid_prose_and_rejects_unknown_ids():
+    from booktr.engine.validation import normalize_cached_text_map
+
+    source = {"prose": "Source words.", "punct": "]"}
+    migrated = normalize_cached_text_map(source, {"prose": "Přijatý český překlad.", "punct": "] "})
+    assert migrated == {"prose": "Přijatý český překlad.", "punct": "]"}
+    with pytest.raises(ValueError, match="ID mismatch"):
+        normalize_cached_text_map(source, {**migrated, "unknown": "Extra"})
+    with pytest.raises(ValueError, match="ID mismatch"):
+        normalize_cached_text_map(source, {"punct": "] "})
+
+
+def test_cached_pipeline_migrates_only_constants_without_repeating_paid_calls(fake_engine):
+    from booktr.engine import pipeline
+
+    book = {"source_lang": "en", "title": "", "chapters": [{"id": "ch01", "heading": "", "paragraphs": [
+        {"id": "prose", "text": "Original prose."}, {"id": "punct", "text": "]"},
+    ]}]}
+    fake_engine.job.write_json("book.json", book)
+    fake_engine.job.write_json("synopses.json", {})
+    fake_engine.job.write_text("stylesheet.md", "Guide")
+    pipeline.run(fake_engine)
+    calls = len(fake_engine.api.calls)
+    aggregates = []
+    for path in (fake_engine.job.dir / "chunks").glob("translate-*.json"):
+        data = json.loads(path.read_text())
+        if "draft" in data:
+            data["draft"]["punct"] = "] "
+            path.write_text(json.dumps(data))
+            aggregates.append(path)
+    assert aggregates
+    pipeline.run(fake_engine)
+    assert len(fake_engine.api.calls) == calls
+    assert fake_engine.job.read_json("draft.json")["punct"] == "]"
+    assert all(json.loads(path.read_text())["draft"]["punct"] == "]" for path in aggregates)
+
+
+def test_profile_cache_includes_language_hint_even_when_source_prose_is_identical(fake_engine, sample_book):
+    fake_engine.job.write_json("book.json", sample_book)
+    stylesheet.run(fake_engine)
+    before = fake_engine.api.call_count("STYLESHEET")
+    changed = copy.deepcopy(sample_book)
+    changed["source_lang"] = "fr"
+    fake_engine.job.write_json("book.json", changed)
+    stylesheet.run(fake_engine)
+    assert fake_engine.api.call_count("STYLESHEET") == before * 2
+
+
+def test_extraction_epoch_reuses_unchanged_paid_maps_but_changed_source_does_not(fake_engine, monkeypatch, tmp_path):
+    from booktr.engine import ingest
+    from booktr.engine.typeset import compile_typ
+
+    source = fake_engine.job.dir / "original.typ"
+
+    def original(text):
+        source.write_text('#set page(paper: "a5", margin: 18mm)\n#set text(size: 12pt)\n' + text)
+        compile_typ(source, fake_engine.job.source_pdf)
+
+    original("The original distinctive source sentence has enough words for native text extraction.")
+    fake_engine.config.output_dir = str(tmp_path / "published")
+    engine = Engine(fake_engine.job, fake_engine.api, fake_engine.config)
+    engine.run()
+    paid_tags = ("STYLESHEET", "STYLE_GUIDE", "STYLE_REDUCE", "TRANSLATE", "REVIEW", "HEADINGS")
+    first_counts = {tag: fake_engine.api.call_count(tag) for tag in paid_tags}
+    first_book = fake_engine.job.read_json("book.json")
+    monkeypatch.setattr(ingest, "EXTRACTION_VERSION", ingest.EXTRACTION_VERSION + 1)
+    engine.run()
+    assert fake_engine.job.read_json("book.json") == first_book
+    assert {tag: fake_engine.api.call_count(tag) for tag in paid_tags} == first_counts
+    original("The updated distinctive source sentence has enough words for native text extraction.")
+    engine.run()
+    assert fake_engine.api.call_count("STYLESHEET") > first_counts["STYLESHEET"]
+    assert fake_engine.api.call_count("TRANSLATE") > first_counts["TRANSLATE"]
+    assert any("updated distinctive source" in text for text in fake_engine.job.read_json("final.json").values())
+    assert not any("original distinctive source" in text for text in fake_engine.job.read_json("final.json").values())

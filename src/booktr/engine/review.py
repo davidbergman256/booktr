@@ -7,7 +7,7 @@ import logging
 from ..errors import BookTrError
 from .checkpoints import cached_call, checkpoint_key, model_settings
 from .translate import MAX_CHUNK_WORDS, build_chunks, chunk_user_prompt
-from .validation import parse_text_map, validate_text_map
+from .validation import immutable_source_entries, normalize_cached_text_map, parse_text_map, validate_text_map
 
 log = logging.getLogger("booktr.review")
 
@@ -45,6 +45,12 @@ def heading_entries(book: dict) -> list[tuple[str, str]]:
 
 def harmonize_headings(engine, heads: list[tuple[str, str]], current: dict[str, str]) -> dict:
     source = dict(heads)
+    validate_text_map(source, current)
+    immutable = immutable_source_entries(source)
+    source = {key: text for key, text in source.items() if key not in immutable}
+    if not source:
+        return {}
+    current = {key: current[key] for key in source}
     style = engine.job.read_text("stylesheet.md") if engine.job.exists("stylesheet.md") else ""
     user = (
         f"CANONICAL STYLE SHEET:\n{style}\n\n"
@@ -71,6 +77,11 @@ def review_chunk(engine, system: str, chunk: dict, draft: dict, context: str = "
         validate_text_map(source, drafted)
     except ValueError as exc:
         raise BookTrError("unknown", f"Invalid draft before review: {exc}") from exc
+    immutable = immutable_source_entries(source)
+    source = {key: text for key, text in source.items() if key not in immutable}
+    if not source:
+        return {}
+    drafted = {key: drafted[key] for key in source}
     user = (
         f"READ-ONLY CONTEXT:\n{context}\n\n"
         f"SOURCE PARAGRAPHS_JSON:\n{json.dumps(source, ensure_ascii=False)}\n\n"
@@ -96,7 +107,8 @@ def review_headings(engine, book: dict, draft: dict, patches: dict) -> dict:
     style = engine.job.read_text("stylesheet.md") if engine.job.exists("stylesheet.md") else ""
     key = checkpoint_key("headings", model_settings(engine.config, engine.config.model_review), HEADINGS_SYSTEM, heads, current, style)
     return cached_call(engine, "review", key, lambda: harmonize_headings(engine, heads, current),
-                       lambda result: validate_text_map(dict(heads), result, partial=True))
+                       lambda result: validate_text_map(dict(heads), result, partial=True),
+                       normalize=lambda result: normalize_cached_text_map(dict(heads), result, partial=True))
 
 
 def run(engine):
@@ -109,7 +121,11 @@ def run(engine):
     chunks = build_chunks(book, getattr(engine.config, "chunk_words", MAX_CHUNK_WORDS))
     keyed = [(checkpoint_key(c["key"], model_settings(engine.config, engine.config.model_review), system,
                              c, {p["id"]: draft.get(p["id"], "") for p in c["paragraphs"]}, synopses), c) for c in chunks]
-    parts = engine.run_chunks("review", keyed, lambda c: review_chunk(engine, system, c, draft, chunk_user_prompt(c, synopses, book)))
+    parts = engine.run_chunks(
+        "review", keyed, lambda c: review_chunk(engine, system, c, draft, chunk_user_prompt(c, synopses, book)),
+        validate=lambda c, data: validate_text_map({p["id"]: p["text"] for p in c["paragraphs"]}, data, partial=True),
+        normalize=lambda c, data: normalize_cached_text_map({p["id"]: p["text"] for p in c["paragraphs"]}, data, partial=True),
+    )
     patches = {key: value for cache_key, _ in keyed for key, value in parts[cache_key].items()}
     patches.update(review_headings(engine, book, draft, patches))
     job.write_json("patches.json", patches)

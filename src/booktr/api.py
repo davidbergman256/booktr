@@ -162,7 +162,15 @@ def parse_json_map(text: str) -> dict[str, str]:
         cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else ""
         if cleaned.rstrip().endswith("```"):
             cleaned = cleaned.rstrip()[:-3]
-    data = json.loads(cleaned)
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"duplicate JSON ID: {key}")
+            result[key] = value
+        return result
+
+    data = json.loads(cleaned, object_pairs_hook=unique_object)
     if not isinstance(data, dict):
         raise ValueError("expected JSON object")
     if any(not isinstance(k, str) or not isinstance(v, str) for k, v in data.items()):

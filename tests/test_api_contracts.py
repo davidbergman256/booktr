@@ -16,6 +16,11 @@ def test_translation_map_accepts_only_actual_text():
     assert parse_json_map('```json\n{"p":"Český text"}\n```') == {'p': 'Český text'}
 
 
+def test_translation_map_rejects_duplicate_ids():
+    with pytest.raises(ValueError, match='duplicate'):
+        parse_json_map('{"p":"First translation","p":"Second translation"}')
+
+
 def test_api_timeout_is_bounded_retry_not_indefinite_offline_loop():
     assert ApiClient._classify(TimeoutError()) == 'retry'
 

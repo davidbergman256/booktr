@@ -17,24 +17,29 @@ from .document import (NOTE_TOKEN, SCHEMA_VERSION, extract_layout, footnote_id,
                        margin_key, note_tokens, without_running_margins)
 
 log = logging.getLogger("booktr.ingest")
-EXTRACTION_VERSION = 6
+EXTRACTION_VERSION = 7
 MIN_TEXT_CHARS = 50
 RENDER_SCALE = 160 / 72
 OCR_SYSTEM = """[OCR] Transcribe this original book page faithfully; never translate or invent text.
 Return one JSON object:
 {"blocks":[{"type":"paragraph|heading", "text":"verbatim text", "bbox":[left,top,right,bottom]}],
- "footnotes":[{"key":"note-1", "label":"original marker", "text":"complete original note body"}],
+ "footnotes":[{"key":"note-1", "label":"original marker", "text":"complete original note body", "bbox":[left,top,right,bottom]}],
  "footnote_continuations":[{"text":"continued original note from the previous page"}],
  "figures":[{"bbox":[left,top,right,bottom]}]}
 Preserve every paragraph, quotation, caption and footnote; join line-wrap hyphens.
 Drop running headers, footers, and standalone page numbers.
 Heading means a genuine chapter title, never shouted dialogue.
-Give each note a unique key, even when printed markers restart (two notes labeled 1).
+A note definition is its physical printed entry, not each reference in the prose.
+Return exactly one footnotes record per printed definition. If the same definition
+is referenced several times, reuse its key at every reference and include its body once.
+Give each physical definition a unique key, even when printed markers restart
+(two separately printed notes labeled 1). Separate identical entries at distinct
+printed locations remain separate definitions. Include each definition's original bbox.
 At each reference write [[FN:note key]] in its exact text position, matching that note.
 Extract its complete body separately in footnotes, excluding its printed marker.
 If a bottom note continues from the preceding page without a new printed marker,
 put its text in footnote_continuations, never body prose and never invent a marker.
-All block and figure coordinates are integers 0..1000 relative to the page, origin top left.
+All block, footnote and figure coordinates are integers 0..1000 relative to the page, origin top left.
 Include ONLY visible artwork, photographs or diagrams; never prose or a whole text page.
 A whole page may be a figure only if it actually consists of artwork.
 Do not transcribe lettering inside artwork as body text; preserve captions.
@@ -296,14 +301,53 @@ def _normalize_ocr(raw: str, metadata: dict, directory: Path) -> dict:
             continued.append({"text": text.strip(), "source_page": metadata["index"]})
         page_no = metadata["index"]
         footnotes, labels = [], {}
-        for n, note in enumerate(notes, start=1):
+        for note in notes:
             label, text = str(note["label"]).strip(), str(note["text"]).strip()
             key = str(note.get("key", label)).strip()
-            if not label or not text or key in labels:
-                raise ValueError("empty or duplicate OCR footnote")
-            ident = footnote_id(page_no, n)
+            if not key or not label or not text:
+                raise ValueError("empty OCR footnote")
+            bbox = None
+            if note.get("bbox") is not None:
+                box = note["bbox"]
+                if (not isinstance(box, list) or len(box) != 4
+                        or not all(type(v) in (int, float) and 0 <= v <= 1000 for v in box)
+                        or box[2] <= box[0] or box[3] <= box[1]):
+                    raise ValueError("invalid OCR footnote coordinates")
+                bbox = [v / 1000 * (metadata["width"] if k % 2 == 0 else metadata["height"])
+                        for k, v in enumerate(box)]
+
+            # Some OCR models emit the same physical definition once per
+            # reference. Text equality alone is unsafe: two sections can each
+            # print "1 Ibid.". Consolidate only matching physical locations.
+            duplicate = None
+            for existing in footnotes:
+                if (existing["label"] != label or re.sub(r"\s+", " ", existing["text"])
+                        != re.sub(r"\s+", " ", text)):
+                    continue
+                if bbox is None or existing.get("bbox") is None:
+                    raise ValueError("identical OCR definitions need physical note coordinates")
+                original = existing["bbox"]
+                overlap = (max(0, min(original[2], bbox[2]) - max(original[0], bbox[0]))
+                           * max(0, min(original[3], bbox[3]) - max(original[1], bbox[1])))
+                original_area = (original[2] - original[0]) * (original[3] - original[1])
+                area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+                if overlap / (original_area + area - overlap) >= .8:
+                    if duplicate is not None:
+                        raise ValueError("ambiguous overlapping physical note coordinates")
+                    duplicate = existing
+                elif overlap:
+                    raise ValueError("ambiguous overlapping physical note coordinates")
+            if key in labels and (duplicate is None or labels[key] != duplicate["id"]):
+                raise ValueError("duplicate OCR footnote key for distinct definitions")
+            if duplicate is not None:
+                labels[key] = duplicate["id"]
+                continue
+            ident = footnote_id(page_no, len(footnotes) + 1)
             labels[key] = ident
-            footnotes.append({"id": ident, "label": label, "text": text, "source_page": page_no})
+            normalized_note = {"id": ident, "label": label, "text": text, "source_page": page_no}
+            if bbox is not None:
+                normalized_note["bbox"] = bbox
+            footnotes.append(normalized_note)
         blocks = []
         for block in data["blocks"]:
             text = str(block["text"]).strip()

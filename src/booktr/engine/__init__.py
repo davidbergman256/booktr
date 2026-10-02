@@ -47,7 +47,7 @@ class Engine:
                 return
 
     def run_chunks(self, stage: str, items: list[tuple[str, object]], work, max_workers: int | None = None,
-                   validate=None) -> dict:
+                   validate=None, normalize=None) -> dict:
         """Concurrent API-only work, ordered results and durable per-item commits.
 
         PDF page parsing/rendering stays outside this pool; PDFium is not thread
@@ -60,8 +60,13 @@ class Engine:
             if self.job.has_chunk(stage, key):
                 try:
                     cached = self.job.load_chunk(stage, key)
+                    original = cached
+                    if normalize:
+                        cached = normalize(item, cached)
                     if validate:
                         validate(item, cached)
+                    if cached != original:
+                        self.job.save_chunk(stage, key, cached)
                     results[key] = cached
                     continue
                 except (OSError, ValueError, TypeError, KeyError):
@@ -108,7 +113,11 @@ class Engine:
                                 model_settings(self.config, self.config.model_draft))
         artifacts = ["pages.json", "book.json", "layout.json", "extraction-report.json", "profiles.json", "stylesheet.md",
                      "synopses.json", "draft.json", "patches.json", "final.json"]
-        chunk_stages = ["ingest", "stylesheet", "translate", "review"]
+        # Source profiles and translations hash their complete inputs and are
+        # validated on every load. Extraction changes may leave native prose
+        # identical; retain that paid work while rebuilding document artifacts.
+        # OCR keys are page indexes, so their extraction/model epoch must reset.
+        chunk_stages = ["ingest"]
         self.job.ensure_fingerprint("extraction", signature, artifacts, chunk_stages)
         if self.job.exists("pages.json") and not ingest.artifacts_valid(self.job):
             log.warning("extraction references missing/corrupt assets; rebuilding document")
@@ -119,8 +128,10 @@ class Engine:
             self.job.ensure_fingerprint("extraction", signature, artifacts, chunk_stages)
 
     def _prepare_translation(self, stylesheet, translate, review) -> None:
+        from .validation import CONTRACT_VERSION
+
         signature = fingerprint(
-            self.job.read_json("book.json"), stylesheet.SYSTEM, stylesheet.REDUCE_SYSTEM,
+            self.job.read_json("book.json"), CONTRACT_VERSION, stylesheet.SYSTEM, stylesheet.REDUCE_SYSTEM,
             stylesheet.reduction_signature(),
             translate.SYSTEM_TMPL, review.SYSTEM_TMPL, review.HEADINGS_SYSTEM,
             model_settings(self.config, self.config.model_draft),

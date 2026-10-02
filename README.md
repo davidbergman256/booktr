@@ -49,6 +49,10 @@ before either narrator mode can run.
 
 ## Verification and performance
 
+A real cold run translated a 349-page, 122,052-word novel in **9 minutes 26 seconds**
+with complete source-based review. [Benchmark results and limits](docs/research/2026-10-01-live-benchmark.md)
+record the measured code snapshot, coverage, request timings and subsequent cache-preserving upgrade.
+
 ```sh
 python -m pytest -q
 python tests/smoke_e2e.py

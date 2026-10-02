@@ -319,6 +319,96 @@ def test_scanned_repeated_labels_have_distinct_keys(tmp_path):
     assert page["blocks"][1]["text"] == f"Second[[FN:{footnote_id(5, 2)}]]."
 
 
+def test_scanned_duplicate_physical_note_reuses_one_definition(tmp_path):
+    metadata = {"index": 3, "width": 400, "height": 600, "images": []}
+    response = json.dumps({
+        "blocks": [{"type": "paragraph", "text": "Old map[[FN:first]]."},
+                   {"type": "paragraph", "text": "Confirmed name[[FN:second]]."}],
+        "footnotes": [{"key": "first", "label": "1", "text": "The town is River Village.",
+                       "bbox": [80, 850, 850, 880]},
+                      {"key": "second", "label": "1", "text": "The town is River Village.",
+                       "bbox": [81, 851, 849, 879]}],
+    })
+    page = ingest._normalize_ocr(response, metadata, tmp_path)
+    assert len(page["footnotes"]) == 1
+    assert page["footnotes"][0]["bbox"] == [32, 510, 340, 528]
+    assert page["blocks"][0]["text"] == "Old map[[FN:fn-p0003-001]]."
+    assert page["blocks"][1]["text"] == "Confirmed name[[FN:fn-p0003-001]]."
+    assert not page["warnings"]
+
+    book = build_book([page], "River")
+    final = {"book-title": "River", "fn-p0003-001": "The town is River Village."}
+    final.update({p["id"]: p["text"] for ch in book["chapters"] for p in ch["paragraphs"]})
+    source = tmp_path / "repeated-note.typ"
+    source.write_text(render_typ(book, final, '#set page(paper: "a5", margin: 18mm)\n#set text(size: 14pt)'),
+                      encoding="utf-8")
+    output = tmp_path / "repeated-note.pdf"
+    compile_typ(source, output)
+    assert "\n".join(_page_texts(output)).count("The town is River Village.") == 1
+
+
+def test_scanned_identical_notes_at_distinct_positions_remain_separate(tmp_path):
+    metadata = {"index": 3, "width": 400, "height": 600, "images": []}
+    page = ingest._normalize_ocr(json.dumps({
+        "blocks": [{"text": "First section[[FN:first]]. Second section[[FN:second]]."}],
+        "footnotes": [{"key": "first", "label": "1", "text": "Ibid.", "bbox": [80, 600, 250, 630]},
+                      {"key": "second", "label": "1", "text": "Ibid.", "bbox": [80, 850, 250, 880]}],
+    }), metadata, tmp_path)
+    assert [(note["id"], note["bbox"]) for note in page["footnotes"]] == [
+        ("fn-p0003-001", [32, 360, 100, 378]),
+        ("fn-p0003-002", [32, 510, 100, 528]),
+    ]
+    assert page["text"] == "First section[[FN:fn-p0003-001]]. Second section[[FN:fn-p0003-002]]."
+
+
+def test_scanned_identical_notes_without_location_cannot_publish_duplicate_definitions(tmp_path):
+    metadata = {"index": 3, "width": 400, "height": 600, "images": []}
+    with pytest.raises(BookTrError, match="physical note coordinates"):
+        ingest._normalize_ocr(json.dumps({
+            "blocks": [{"text": "First[[FN:first]]. Second[[FN:second]]."}],
+            "footnotes": [{"key": "first", "label": "1", "text": "Ibid."},
+                          {"key": "second", "label": "1", "text": "Ibid."}],
+        }), metadata, tmp_path)
+
+
+@pytest.mark.parametrize("reversed_order", [False, True])
+def test_scanned_duplicate_note_checks_all_physical_definitions_before_aliasing(tmp_path, reversed_order):
+    metadata = {"index": 3, "width": 400, "height": 600, "images": []}
+    definitions = [
+        {"key": "first", "label": "1", "text": "Ibid.", "bbox": [80, 600, 250, 700]},
+        {"key": "second", "label": "1", "text": "Ibid.", "bbox": [80, 700, 250, 730]},
+    ]
+    if reversed_order:
+        definitions.reverse()
+    # This candidate strongly overlaps the first printed definition, but also
+    # includes most of the separate second entry. Its identity is ambiguous.
+    definitions.append({"key": "ambiguous", "label": "1", "text": "Ibid.",
+                        "bbox": [80, 600, 250, 725]})
+    with pytest.raises(BookTrError, match="ambiguous overlapping physical note coordinates"):
+        ingest._normalize_ocr(json.dumps({"blocks": [], "footnotes": definitions}), metadata, tmp_path)
+
+
+def test_scanned_partially_overlapping_identical_notes_need_reinspection(tmp_path):
+    metadata = {"index": 3, "width": 400, "height": 600, "images": []}
+    with pytest.raises(BookTrError, match="ambiguous overlapping physical note coordinates"):
+        ingest._normalize_ocr(json.dumps({
+            "blocks": [],
+            "footnotes": [{"key": "first", "label": "1", "text": "Ibid.", "bbox": [80, 600, 250, 700]},
+                          {"key": "second", "label": "1", "text": "Ibid.", "bbox": [80, 650, 250, 750]}],
+        }), metadata, tmp_path)
+
+
+@pytest.mark.parametrize("box", [[80, 850, 80, 880], [-1, 850, 250, 880],
+                                 [80, 850, 250], [False, 850, 250, 880]])
+def test_scanned_note_coordinates_are_validated(tmp_path, box):
+    metadata = {"index": 3, "width": 400, "height": 600, "images": []}
+    with pytest.raises(BookTrError, match="footnote coordinates"):
+        ingest._normalize_ocr(json.dumps({
+            "blocks": [{"text": "Reference[[FN:note]]."}],
+            "footnotes": [{"key": "note", "label": "1", "text": "Original body.", "bbox": box}],
+        }), metadata, tmp_path)
+
+
 def test_narrow_original_word_spaces_survive_digital_extraction(fake_engine):
     directory = fake_engine.job.dir
     original = "The first source sentence ends here. Another sentence preserves narrow spaces and every original word correctly."

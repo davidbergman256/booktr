@@ -69,6 +69,6 @@ Files: config.py, state.py, api.py, gui.py, strings_cs.py, __main__.py, pyprojec
 - [x] Run full pytest, offline scanned/digital PDF/audio checks and real desktop widget checks; inspect rendered PDF output.
 - [ ] Verify current provider models and credentials without exposing secrets.
 - [x] Complete first cold full-book benchmark: 349 pages / 122,052 words in 578.236 seconds with full review.
-- [ ] Repeat the cold benchmark against the final extraction and canonical reducer.
+- [x] Repeat cold benchmark with extraction v6 and full-context canonical batches: 566.364 seconds, full review. Validate OCR-only extraction v7 separately with live scan fixtures, then upgrade/revalidate the complete novel in 15.684 seconds without regenerating translated prose.
 - [x] Fresh review, fix material findings, rerun necessary checks.
-- [ ] Save research/setup/usage documentation and produce reviewable branch/draft PR.
+- [x] Save research/setup/usage documentation and produce reviewable branch/draft PR.

@@ -23,13 +23,18 @@ def model_settings(config, model: str) -> dict:
     return {"model": model, "reasoning_effort": effort}
 
 
-def cached_call(engine, stage: str, key: str, work, validate=None):
+def cached_call(engine, stage: str, key: str, work, validate=None, normalize=None):
     job = engine.job
     if job.has_chunk(stage, key):
         try:
             result = job.load_chunk(stage, key)
+            original = result
+            if normalize:
+                result = normalize(result)
             if validate:
                 validate(result)
+            if result != original:
+                job.save_chunk(stage, key, result)
             return result
         except (ValueError, TypeError, KeyError, OSError):
             pass
