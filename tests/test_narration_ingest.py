@@ -239,3 +239,17 @@ Původní český odstavec nemá žádný odkaz na poznámku, ale jeho znění m
     with pytest.raises(BookTrError, match="native footnote"):
         ingest.run(context)
     assert context.api.calls == []
+
+
+@pytest.mark.parametrize("language", ["cs", "de"])
+def test_localized_typst_footnote_links_retain_native_reference_without_openai(job, config, language):
+    _compile(job, f'''#set page(paper: "a5", margin: 18mm)
+#set text(lang: "{language}", size: 14pt)
+Přesné znění již přeložené knihy má původní poznámku#footnote[Celé původní znění poznámky autora.]. Každý odkaz musí být zachován i při novém formátu PDF.
+''')
+    context = _engine(job, config)
+    pages = ingest.run(context)
+    assert context.api.calls == []
+    assert [note["text"] for note in pages[0]["footnotes"]] == ["Celé původní znění poznámky autora."]
+    assert "poznámku[[FN:fn-p0001-001]]." in pages[0]["text"]
+    assert pages[0]["warnings"] == []

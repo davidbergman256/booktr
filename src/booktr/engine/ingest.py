@@ -17,7 +17,7 @@ from .document import (NOTE_TOKEN, SCHEMA_VERSION, extract_layout, footnote_id,
                        margin_key, note_tokens, without_running_margins)
 
 log = logging.getLogger("booktr.ingest")
-EXTRACTION_VERSION = 7
+EXTRACTION_VERSION = 8
 MIN_TEXT_CHARS = 50
 RENDER_SCALE = 160 / 72
 OCR_SYSTEM = """[OCR] Transcribe this original book page faithfully; never translate or invent text.
@@ -145,7 +145,11 @@ def _note_annotations(pdf) -> dict[int, list[dict]]:
     for index, annots in annotations.items():
         for annotation in annots:
             contents = str(annotation.get("contents") or "").strip()
-            match = re.fullmatch(r"Footnote\s+(\d{1,3}|[*†‡§]+|[A-Za-z]{1,8})", contents, re.IGNORECASE)
+            # Typst 0.15 localizes link descriptions to the document language.
+            # Keep recognizing semantic note links for our Czech output and
+            # English/German input, with the original destination/backlink checks.
+            match = re.fullmatch(r"(?:Footnote|Poznámka|Fußnote)\s+(\d{1,3}|[*†‡§]+|[A-Za-z]{1,8})",
+                                 contents, re.IGNORECASE)
             destination = annotation.get("data", {}).get("Dest")
             if not match or not isinstance(destination, list) or len(destination) < 4:
                 continue
