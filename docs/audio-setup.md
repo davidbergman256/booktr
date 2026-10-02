@@ -66,6 +66,43 @@ limit. The [ElevenLabs model documentation](https://elevenlabs.io/docs/overview/
 lists Starter at 3 HTTP generations and Creator at 5. Voice availability and
 actual account limits must be verified with the account credentials.
 
+## Read and listen to the same Czech book
+
+The usual workflow is to translate an English or German book with **Přeložit
+knihu**, read the resulting Czech PDF, then click **Vytvořit audioknihu** on the
+finished-book screen. **Audiokniha** on the main screen also lists saved books.
+BookTr narrates its reviewed Czech paragraphs directly, including
+the translated chapter titles and footnotes. The saved translation and PDF stay
+available while audio is generated. This path does not run language detection,
+translation, review, OCR, or PDF layout and does not require an OpenAI key.
+
+To narrate an already Czech PDF or TXT, select that file as the audio source.
+The program treats this choice as Czech; it does not decide to translate it.
+Native PDFs with selectable text need no OpenAI key. Scanned body pages can use
+transcription-only OCR when an OpenAI key is configured; this adds an OCR charge
+and still never runs translation or review. Uncertain native footnote references
+stop for correction. Plain text accepts UTF-8 (with or without a byte-order
+mark), or UTF-16 with a byte-order mark.
+
+The same choices are available without the desktop interface:
+
+```sh
+python -m booktr --audiobook-only "/path/to/saved-translation-job" --config config.json --voice-mode normal
+python -m booktr --audiobook-only "Kniha česky.pdf" --config config.json --voice-mode normal
+python -m booktr --audiobook-only "Kniha česky.txt" --config config.json --voice-mode advanced
+```
+
+Saved translation jobs are directories under the app's `jobs` folder containing
+`book.json` and the complete `final.json`. BookTr validates every paragraph,
+chapter title, and footnote before requesting speech. Imported Czech sources
+have separate narration jobs, so they cannot overwrite a translation job for
+the same PDF. Re-select the same source to resume interrupted speech generation.
+Changing the narrator uses a separate audio cache.
+
+`--headless original.pdf --audiobook` remains the combined translate-then-narrate
+command. `--audiobook-only` selects narration alone and cannot be combined with
+`--headless`, `--audiobook`, or the PDF-only `--font-size` option.
+
 ## Generation and exports
 
 Chirp requests are bounded at 4,500 UTF-8 bytes, below Google's 5,000-byte limit,

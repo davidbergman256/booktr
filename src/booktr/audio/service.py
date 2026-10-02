@@ -243,13 +243,15 @@ def _plan(book: dict, final: dict, provider) -> list[SpeechChunk]:
 
 
 class AudiobookService:
-    def __init__(self, job, config, progress_cb=None, pause_event: threading.Event | None = None, *, provider=None, cancel_event=None):
+    def __init__(self, job, config, progress_cb=None, pause_event: threading.Event | None = None, *, provider=None, cancel_event=None, output_mode="audio", provider_validated=False):
         self.job, self.config = job, config
+        self.output_mode = output_mode
         self.progress_cb = progress_cb or (lambda stage, cur, tot: None)
         self.pause_event = pause_event if pause_event is not None else threading.Event()
         if pause_event is None:
             self.pause_event.set()
         self.provider = provider
+        self.provider_validated = provider_validated
         self.cancel_event = cancel_event or threading.Event()
         self._stop_event = threading.Event()
 
@@ -297,7 +299,8 @@ class AudiobookService:
             completed = len(chunks) - sum(count for _, count in todo.values())
             self._report(completed, len(chunks))
             if todo:
-                provider.validate()  # Account/voice validation before any paid generation.
+                if not self.provider_validated:
+                    provider.validate()  # Account/voice validation before paid generation.
                 workers = max(1, min(16, int(getattr(self.config, "audio_workers", 3))))
                 def narrate(chunk, path):
                     self._checkpoint_wait()
@@ -340,7 +343,7 @@ class AudiobookService:
             manifest["audio"] = output.name
             _write_json(destination.with_suffix(".chapters.json"), manifest)
             self._report(len(chunks), len(chunks))
-            self.job.set_progress(status="done", output_mode="audio", audio_output=str(output), audio_fingerprint=fingerprint)
+            self.job.set_progress(status="done", output_mode=self.output_mode, audio_output=str(output), audio_fingerprint=fingerprint)
             return output
         finally:
             if self.provider is None:

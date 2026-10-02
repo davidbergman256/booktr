@@ -7,7 +7,7 @@ from pathlib import Path
 from PIL import Image
 
 from .audio.providers import PcmAudio
-from .audio.service import AudiobookService
+from .audio import run_saved, run_source
 from .config import Config
 from .engine import Engine
 from .engine.typeset import run as typeset
@@ -37,6 +37,8 @@ def run() -> Path:
     cfg=Config(output_dir=str(directory))
     pdf=typeset(Engine(job, None, cfg))
     assert pdf.stat().st_size > 1000
+    job.set_progress(output=str(pdf), status='done')
+    original_text=(job.dir / 'final.json').read_bytes()
     class OfflineVoice:
         identity = {'provider':'offline-self-test','sample_rate':24000}
         max_chars, max_bytes = 1800, None
@@ -46,8 +48,16 @@ def run() -> Path:
             return PcmAudio(b'\x00\x00' * 24000)
         def close(self):
             pass
-    audio=AudiobookService(job,cfg,provider=OfflineVoice()).run(book,final)
+    audio=run_saved(job,cfg,provider=OfflineVoice())
     assert audio.suffix == '.m4b', 'Bundled FFmpeg did not create M4B'
     assert audio.stat().st_size > 100
+    assert job.progress()['output'] == str(pdf)
+    assert (job.dir / 'final.json').read_bytes() == original_text
+    imported=Job.from_pdf(pdf, base_dir=directory / 'narration')
+    imported.set_progress(audio_source_kind='czech_pdf')
+    imported_audio=run_source(imported,cfg,provider=OfflineVoice())
+    assert imported_audio.suffix == '.m4b' and imported_audio.stat().st_size > 100
+    assert imported.read_json('book.json')['source_lang'] == 'cs'
+    assert not cfg.openai_api_key  # Native PDF narration works without translation credentials.
     print(f'BookTr offline self-test passed: {directory}', flush=True)
     return directory

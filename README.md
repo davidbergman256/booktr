@@ -15,6 +15,15 @@ Normal narration uses Czech Google Chirp 3 HD. Advanced uses ElevenLabs v4's
 dialogue API. Both produce one playable audiobook with chapter navigation.
 The ~250 Kč / ~700 Kč labels are approximate and depend on book length and plan.
 
+Translate a book once, then click **Vytvořit audioknihu** on the finished-book
+screen. **Audiokniha** on the main screen also lists saved Czech books and offers
+**Vybrat české PDF nebo text**. Narration reads the same reviewed paragraphs used in the PDF, so the
+reader can switch between the printed book and audio. Narration does not rerun
+language detection, translation, editorial review, or PDF layout. An existing
+Czech PDF or text file can also be narrated directly.
+The finished audiobook offers **Otevřít také PDF**. If narration is interrupted,
+it resumes speech generation without translating the book again.
+
 ## Run locally
 
 Python 3.11 or newer:
@@ -26,7 +35,9 @@ python -m venv .venv
 ```
 
 On Windows, use `.venv\Scripts\python.exe`. Copy `config.example.json` to private
-`config.json` and fill in the OpenAI key. The default models are `gpt-6-luna`
+`config.json` and fill in the OpenAI key for translation. Audio-only generation
+from a saved translation or existing Czech text needs only its speech provider's
+credentials. The default models are `gpt-6-luna`
 for drafting with no reasoning and `gpt-6.1-sol` for editorial review with low
 reasoning. **Existing private configs retain their explicitly chosen models**;
 update those two model fields and reasoning settings to use the new defaults.
@@ -39,8 +50,21 @@ separately and never contain keys.
 ```sh
 python -m booktr --headless book.pdf --config config.json --font-size 18
 python -m booktr --headless book.pdf --config config.json --audiobook --voice-mode normal
+python -m booktr --audiobook-only "/path/to/saved-translation-job" --config config.json
+python -m booktr --audiobook-only "Kniha česky.pdf" --config config.json --voice-mode normal
+python -m booktr --audiobook-only "Kniha česky.txt" --config config.json --voice-mode advanced
 python -m booktr --self-test
 ```
+
+`--audiobook-only` explicitly treats its input as Czech. Saved translation jobs
+live in the app's `jobs` folder and contain `book.json` and `final.json`. Reusing
+that job preserves chapter boundaries and footnotes without extracting the PDF
+again. Native PDFs with selectable text and TXT files need no OpenAI key.
+Scanned PDF body pages may need paid transcription-only OCR, which requires an
+OpenAI key; this never triggers translation. TXT files can use UTF-8 or UTF-16
+with a byte-order mark.
+Speech chunks retain checkpoints, so restarting narration resumes completed
+audio instead of paying to generate it again.
 
 [Audiobook account setup and private provisioning](docs/audio-setup.md) describes
 Google Cloud activation, authentication, ElevenLabs voice selection, live checks,

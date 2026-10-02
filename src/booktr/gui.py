@@ -20,11 +20,12 @@ from .config import Config, load_config
 from .engine import Engine
 from .errors import BookTrError, action_label, categorize, friendly_message
 from .gui_settings import BG, GREEN, INK, MUTED, PAPER, show_settings
-from .state import Job, list_unfinished
+from .state import Job, jobs_base_dir, list_ready_books, list_unfinished
 
 log = logging.getLogger('booktr.gui')
 STAGE_WEIGHTS = {'ingest': 10, 'segment': 2, 'stylesheet': 10, 'translate': 70,
                  'merge': 2, 'typeset': 6}
+AUDIO_MODES = {'audio', 'audio_saved', 'audio_only'}
 
 
 class App(ctk.CTk):
@@ -48,6 +49,7 @@ class App(ctk.CTk):
         self.output_path = None
         self.pdf_path = None
         self.mode = 'pdf'
+        self.combined_audio = False
         self.settings_window = None
         self.stage_fractions = {}
         self.started_at = None
@@ -101,20 +103,70 @@ class App(ctk.CTk):
         choices.grid_columnconfigure((0, 1), weight=1, uniform='choice')
         for column, mode, title, detail in (
             (0, 'pdf', 'Přeložit knihu', 'PDF s obrázky a poznámkami.'),
-            (1, 'audio', 'Audiokniha', 'Kniha k poslechu v češtině.'),
+            (1, 'audio', 'Audiokniha', 'Z hotové české knihy, bez dalšího překladu.'),
         ):
             pane = ctk.CTkFrame(choices, fg_color=PAPER, corner_radius=16)
             pane.grid(row=0, column=column, sticky='nsew', padx=(0, 10) if column == 0 else (10, 0))
-            self.button(pane, title, lambda m=mode: self.pick_book(m),
+            command = self.show_audio_sources if mode == 'audio' else lambda: self.pick_book('pdf')
+            self.button(pane, title, command,
                         secondary=column == 1, height=100).pack(fill='x', padx=18, pady=(18, 14))
             self.label(pane, detail, muted=True, wraplength=300).pack(padx=12, pady=(0, 22))
-        self.label(self.frame, 'Na začátku vyberete soubor PDF. O zbytek se postará program.',
+        self.label(self.frame, 'Přeložte knihu jednou. Stejný český text pak můžete číst i poslouchat.',
                    muted=True, wraplength=740, anchor='w', justify='left').pack(fill='x', pady=(30, 0))
         footer = ctk.CTkFrame(self.frame, fg_color=BG)
         footer.pack(side='bottom', fill='x', pady=(24, 0))
         voice = 'Normální' if self.config_obj.voice_mode == 'normal' else 'Pokročilý'
         self.label(footer, f'Písmo PDF: {self.config_obj.font_size} bodů   ·   Hlas: {voice}',
                    muted=True, anchor='w').pack(fill='x')
+
+    def show_audio_sources(self):
+        self.clear()
+        self.header()
+        self.label(self.frame, 'Audiokniha.', large=True, anchor='w').pack(fill='x', pady=(0, 8))
+        self.label(self.frame, 'Vyberte hotovou českou knihu. Text se znovu nepřekládá.',
+                   muted=True, wraplength=720, anchor='w', justify='left').pack(fill='x', pady=(0, 16))
+        library = ctk.CTkScrollableFrame(self.frame, fg_color=PAPER, corner_radius=12, height=140)
+        library.pack(fill='both', expand=True, pady=(0, 18))
+        books = list_ready_books()
+        if not books:
+            self.label(library, 'Po překladu zde najdete své knihy.', muted=True,
+                       wraplength=560, justify='left').pack(fill='x', padx=16, pady=20)
+        for job in books:
+            row = ctk.CTkFrame(library, fg_color=PAPER)
+            row.pack(fill='x', padx=8, pady=6)
+            row.grid_columnconfigure(0, weight=1)
+            self.label(row, job.title, wraplength=420, anchor='w', justify='left').grid(
+                row=0, column=0, sticky='ew', padx=(8, 12))
+            self.button(row, 'Namluvit', lambda j=job: self.start_job(j, 'audio_saved'),
+                        width=130, height=48).grid(row=0, column=1, padx=8)
+        self.button(self.frame, 'Vybrat české PDF nebo text', self.pick_czech_book).pack(fill='x', pady=(0, 14))
+        footer = ctk.CTkFrame(self.frame, fg_color=BG)
+        footer.pack(fill='x')
+        self.button(footer, 'Zpět', self.show_start, secondary=True, width=120).pack(side='left')
+        self.button(footer, 'Přeložit a namluvit', lambda: self.pick_book('audio'),
+                    secondary=True, width=270).pack(side='right')
+
+    def pick_czech_book(self):
+        path = filedialog.askopenfilename(title='Vybrat hotovou českou knihu', filetypes=[
+            ('Česká kniha', '*.pdf *.txt'), ('Kniha v PDF', '*.pdf'), ('Český text', '*.txt')])
+        if not path:
+            return
+        try:
+            source = Path(path)
+            base = jobs_base_dir() / 'narration'
+            if source.suffix.lower() == '.pdf':
+                job = Job.from_pdf(source, base_dir=base)
+                kind = 'czech_pdf'
+            elif source.suffix.lower() == '.txt':
+                job = Job.from_text(source, base_dir=base)
+                kind = 'czech_text'
+            else:
+                raise BookTrError('bad_pdf', 'Choose a Czech PDF or text file')
+            job.set_progress(audio_source_kind=kind, source_display_path=str(source))
+        except Exception as exc:
+            self.show_error(categorize(exc))
+            return
+        self.start_job(job, 'audio_only')
 
     def show_resume(self, job):
         self.clear()
@@ -140,12 +192,12 @@ class App(ctk.CTk):
     def show_progress(self, title):
         self.clear()
         self.header(settings=False)
-        self.label(self.frame, 'Připravuji audioknihu.' if self.mode == 'audio' else 'Připravuji vaši knihu.',
+        self.label(self.frame, 'Připravuji audioknihu.' if self.mode in AUDIO_MODES else 'Připravuji vaši knihu.',
                    large=True, anchor='w').pack(fill='x', pady=(24, 10))
         self.label(self.frame, title, muted=True, wraplength=740, anchor='w').pack(fill='x', pady=(0, 30))
         self.offline_banner = self.label(self.frame, S.OFFLINE_BANNER, wraplength=720,
                                         fg_color='#f3dfb8', corner_radius=10, height=70)
-        self.stage_label = self.label(self.frame, 'Čtu knihu…', anchor='w')
+        self.stage_label = self.label(self.frame, 'Připravuji hlas…' if self.mode == 'audio_saved' else 'Čtu knihu…', anchor='w')
         self.stage_label.pack(fill='x', pady=(0, 18))
         self.progress_bar = ctk.CTkProgressBar(self.frame, progress_color=GREEN,
                                             fg_color='#dde3d8', height=16, corner_radius=8)
@@ -170,14 +222,19 @@ class App(ctk.CTk):
         self.clear()
         self.output_path = Path(output)
         self.header()
-        self.label(self.frame, 'Vaše audiokniha je hotová.' if self.mode == 'audio' else 'Vaše kniha je hotová.',
+        is_audio = self.mode in AUDIO_MODES
+        self.label(self.frame, 'Vaše audiokniha je hotová.' if is_audio else 'Vaše kniha je hotová.',
                    large=True, wraplength=740, anchor='w').pack(fill='x', pady=(36, 14))
         self.label(self.frame, f'Uloženo do: {self.output_path.parent}', muted=True,
                    wraplength=730, anchor='w', justify='left').pack(fill='x', pady=(0, 28))
-        self.button(self.frame, 'Přehrát audioknihu' if self.mode == 'audio' else 'Otevřít knihu',
+        self.button(self.frame, 'Přehrát audioknihu' if is_audio else 'Otevřít knihu',
                     lambda: self.open_path(self.output_path)).pack(anchor='w')
-        if self.mode == 'audio' and self.pdf_path:
+        if is_audio and self.pdf_path:
             self.button(self.frame, 'Otevřít také PDF', lambda: self.open_path(self.pdf_path),
+                        secondary=True).pack(anchor='w', pady=(14, 0))
+        elif not is_audio and self.current_job and self.current_job.exists('book.json') and self.current_job.exists('final.json'):
+            self.button(self.frame, 'Vytvořit audioknihu',
+                        lambda: self.start_job(self.current_job, 'audio_saved'),
                         secondary=True).pack(anchor='w', pady=(14, 0))
         self.button(self.frame, 'Další kniha', self.show_start, secondary=True).pack(anchor='w', pady=14)
         if self.current_job and self.current_job.exists('warnings.json'):
@@ -216,13 +273,30 @@ class App(ctk.CTk):
         else:
             self.show_start()
 
+    @staticmethod
+    def paired_pdf(job):
+        progress = job.progress()
+        if output := progress.get('output'):
+            return Path(output)
+        kind = progress.get('audio_source_kind')
+        if job.exists('audio-source.json'):
+            try:
+                kind = job.read_json('audio-source.json').get('kind', kind)
+            except (OSError, ValueError, AttributeError):
+                pass
+        # An imported PDF is copied before preparation. Pair with that immutable
+        # reading copy even when the originally selected file moves or changes.
+        return job.source_pdf if kind == 'czech_pdf' and job.source_pdf.is_file() else None
+
     def start_job(self, job, mode=None):
         if self.busy:
             return
         self.current_job = job
         self.mode = mode or job.progress().get('output_mode', 'pdf')
+        self.combined_audio = self.mode == 'audio'
+        translates = self.mode in ('pdf', 'audio')
         try:
-            cfg = load_config()
+            cfg = load_config(validate=translates)
         except BookTrError as err:
             self.show_error(err)
             return
@@ -231,15 +305,12 @@ class App(ctk.CTk):
         self.pause_event.set()
         self.cancel_event.clear()
         self.stage_fractions = {}
+        self.pdf_path = self.paired_pdf(job)
         self.started_at = time.monotonic()
         self.busy = True
         job.set_progress(output_mode=self.mode, status='running')
         self.show_progress(job.title)
-        api = ApiClient(cfg, on_offline=lambda: self.queue.put(('offline', True)),
-                        on_online=lambda: self.queue.put(('offline', False)), cancel_event=self.cancel_event)
-        engine = Engine(job, api, cfg,
-                        progress_cb=lambda st, c, t: self.queue.put(('progress', st, c, t)),
-                        pause_event=self.pause_event, cancel_event=self.cancel_event)
+        report = lambda st, c, t: self.queue.put(('progress', st, c, t))
         def work():
             try:
                 if self.mode == 'audio':
@@ -249,12 +320,26 @@ class App(ctk.CTk):
                         provider.validate()
                     finally:
                         provider.close()
-                self.pdf_path = engine.run()
-                output = self.pdf_path
-                if self.mode == 'audio':
-                    from .audio import run as make_audio
-                    job.set_progress(status='running')
-                    output = make_audio(engine)
+                if self.mode in ('audio_saved', 'audio_only'):
+                    from .audio import run_saved, run_source
+                    make_audio = run_saved if self.mode == 'audio_saved' else run_source
+                    output = make_audio(job, cfg, progress_cb=report,
+                                        pause_event=self.pause_event, cancel_event=self.cancel_event)
+                else:
+                    api = ApiClient(cfg, on_offline=lambda: self.queue.put(('offline', True)),
+                                    on_online=lambda: self.queue.put(('offline', False)), cancel_event=self.cancel_event)
+                    engine = Engine(job, api, cfg, progress_cb=report,
+                                    pause_event=self.pause_event, cancel_event=self.cancel_event)
+                    self.pdf_path = engine.run()
+                    output = self.pdf_path
+                    if self.mode == 'audio':
+                        from .audio import run_saved
+                        # Once Czech text/PDF exist, speech retries must never
+                        # re-enter translation or require its credentials.
+                        self.mode = 'audio_saved'
+                        job.set_progress(output_mode='audio_saved', status='running')
+                        output = run_saved(job, cfg, progress_cb=report,
+                                           pause_event=self.pause_event, cancel_event=self.cancel_event)
                 self.queue.put(('done', output))
             except Exception as exc:
                 log.exception('book processing interrupted')
@@ -287,7 +372,14 @@ class App(ctk.CTk):
         if not hasattr(self, 'stage_label') or not self.stage_label.winfo_exists():
             return
         self.stage_fractions[stage] = max(self.stage_fractions.get(stage, 0), cur / max(total, 1))
-        weights = STAGE_WEIGHTS if self.mode == 'pdf' else {**STAGE_WEIGHTS, 'audio': 180}
+        if self.combined_audio:
+            weights = {**STAGE_WEIGHTS, 'audio': 180}
+        elif self.mode == 'audio_saved':
+            weights = {'audio': 100}
+        elif self.mode == 'audio_only':
+            weights = {'ingest': 8, 'segment': 2, 'audio': 90}
+        else:
+            weights = STAGE_WEIGHTS if self.mode == 'pdf' else {**STAGE_WEIGHTS, 'audio': 180}
         fraction = sum(weights.get(st, 0) * min(fr, 1) for st, fr in self.stage_fractions.items()) / sum(weights.values())
         self.progress_bar.set(min(1, fraction))
         template = S.STAGE_LABELS.get(stage, 'Připravuji knihu…')

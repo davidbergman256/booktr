@@ -456,6 +456,10 @@ def _repair_anchors(raw: str, metadata: dict) -> dict:
 
 def run(engine):
     job, api, cfg = engine.job, engine.api, engine.config
+    # Existing Czech books use this extraction context without running the
+    # translation pipeline. Native text is authoritative, including short
+    # chapters and illustrated pages which translation mode checks visually.
+    narration_only = bool(getattr(engine, "narration_only", False))
     try:
         import pdfplumber
         import pypdfium2 as pdfium
@@ -472,6 +476,8 @@ def run(engine):
     (job.dir / "assets").mkdir(exist_ok=True)
     (job.dir / "ocr-pages").mkdir(exist_ok=True)
     items: list[tuple[str, object]] = []
+    cover_candidate: tuple[str, dict] | None = None
+    body_needs_ocr = False
     try:
         repeated_margins = _running_margins(pdf)
         annotations = _note_annotations(layout_pdf)
@@ -485,6 +491,15 @@ def run(engine):
                 except (OSError, ValueError, TypeError):
                     cached = None
                 if _page_valid(cached, job.dir, index + 1):
+                    if narration_only and index == 0 and not cached["blocks"] and cached["images"] and cached.get("cover"):
+                        # Reconsider a skipped first page if resumed body pages
+                        # prove the document is a scan rather than a native book.
+                        metadata = {**cached, "source_text": "", "ocr_image": cached["cover"]["path"]}
+                        cover_candidate = (key, metadata)
+                        items.append((key, metadata))
+                        continue
+                    if index > 0 and cached.get("ocr_image"):
+                        body_needs_ocr = True
                     if cached.get("footnotes"):
                         previous_note = cached["footnotes"][-1]
                     items.append((key, None))
@@ -517,7 +532,39 @@ def run(engine):
                         if ((asset["bbox"][2] - asset["bbox"][0]) * (asset["bbox"][3] - asset["bbox"][1])
                                 >= width * height * .35):
                             asset["role"] = "scan_background"
-                if len(text.strip()) >= MIN_TEXT_CHARS and not full_scan and not large_partial_scan:
+                native_narration = False
+                if narration_only:
+                    pl_page = layout_pdf.pages[index]
+                    native_chars = without_running_margins(pl_page.chars, height, repeated_margins)
+                    visible_chars = [char for char in native_chars if char.get("text", "").strip()]
+                    native_body_chars = sum(len(char["text"].strip()) for char in visible_chars
+                                            if height * .085 <= char["top"] and char["bottom"] <= height * .94)
+                    native_body = native_body_chars >= MIN_TEXT_CHARS
+                    # A native header or short title over a large scan is not
+                    # enough evidence that its prose exists in the text layer.
+                    # Ordinary short pages without scan evidence remain local.
+                    native_narration = bool(visible_chars) and (
+                        native_body or not (full_scan or large_partial_scan))
+                    if not visible_chars and index == 0 and assets:
+                        # With native body pages this is the decorative cover.
+                        # Defer that decision until body extraction establishes
+                        # whether the document is scanned, so a first scanned
+                        # chapter cannot silently disappear as an assumed cover.
+                        metadata["source_text"] = text
+                        metadata["ocr_image"] = metadata["cover"]["path"]
+                        cover_candidate = (key, metadata)
+                        items.append((key, metadata))
+                        pl_page.close()
+                        continue
+                    if not visible_chars and not assets:
+                        # Genuinely blank pages need neither spoken text nor an
+                        # external transcription request.
+                        job.save_chunk("ingest", key, {**metadata, "blocks": [], "footnotes": [],
+                                                       "text": "", "warnings": []})
+                        items.append((key, None))
+                        pl_page.close()
+                        continue
+                if native_narration or (len(text.strip()) >= MIN_TEXT_CHARS and not full_scan and not large_partial_scan):
                     pl_page = layout_pdf.pages[index]
                     separators = [line["top"] for line in pl_page.lines
                                   if abs(line["bottom"] - line["top"]) < 2
@@ -528,6 +575,9 @@ def run(engine):
                     if layout["footnotes"]:
                         previous_note = layout["footnotes"][-1]
                     if layout["warnings"]:
+                        if narration_only:
+                            raise BookTrError("bad_pdf", f"Cannot confidently locate native footnote references "
+                                              f"on source page {index + 1}: {'; '.join(layout['warnings'])}")
                         # Vision sees the printed marker while deterministic
                         # validation prevents it from rewriting digital prose.
                         metadata.update(layout)
@@ -540,6 +590,8 @@ def run(engine):
                         items.append((key, None))
                     pl_page.close()
                 else:
+                    if index > 0:
+                        body_needs_ocr = True
                     metadata["source_text"] = text
                     metadata["ocr_image"] = f"ocr-pages/{key}.png"
                     (job.dir / metadata["ocr_image"]).write_bytes(_render_png(page))
@@ -549,6 +601,18 @@ def run(engine):
     finally:
         pdf.close()
         layout_pdf.close()
+
+    if cover_candidate:
+        key, metadata = cover_candidate
+        if total > 1 and not body_needs_ocr:
+            unspoken = {name: value for name, value in metadata.items()
+                        if name not in {"source_text", "ocr_image"}}
+            job.save_chunk("ingest", key, {**unspoken, "blocks": [], "footnotes": [],
+                                           "text": "", "warnings": []})
+        elif job.has_chunk("ingest", key):
+            cached = job.load_chunk("ingest", key)
+            if not cached.get("ocr_image"):
+                job._chunk_path("ingest", key).unlink()
 
     def ocr(metadata: dict) -> dict:
         png = (job.dir / metadata["ocr_image"]).read_bytes()

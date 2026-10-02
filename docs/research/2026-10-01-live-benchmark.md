@@ -53,7 +53,7 @@ The complete novel was then rebuilt with extraction version 7 and the current gu
 
 The upgrade restored two cached closing-bracket entries that had one extra whitespace character. Every alphabetic translated entry remained byte-for-byte identical to the accepted cold result. All 33 entries consisting only of punctuation/numbers/opaque note anchors now exactly equal their source, and the stronger complete-ID/text contract validates all 2,227 final entries. The output remains 253 pages. Warm evidence is in `outputs/final-benchmark/benchmark-report.json`; migration provenance is recorded separately without adding metadata to model profiles. The warm application source hash is `fb1a3d4160522a2ea07727443c520d72690f917e0f7dd68c5a94b2bf4d9c8f84`.
 
-The current code passes 137 tests and the complete offline PDF smoke test. Rendered checks of the final opening, middle and ending are preserved as `outputs/final-benchmark/proof-{opening,middle,ending}-final.png`.
+The validated upgrade passed 137 tests and the complete offline PDF smoke test. Rendered checks of the final opening, middle and ending are preserved as `outputs/final-benchmark/proof-{opening,middle,ending}-final.png`.
 
 ## Interpretation
 
