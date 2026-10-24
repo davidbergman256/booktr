@@ -7,6 +7,9 @@ on:
     branches: ["main"]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
   group: booktr-build-${{ github.ref }}
   cancel-in-progress: true
@@ -45,3 +48,64 @@ jobs:
         with:
           name: BookTr-windows
           path: dist/BookTr.exe
+          if-no-files-found: error
+
+  release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify release tag matches the application version
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          import tomllib
+          from pathlib import Path
+          tag = os.environ["RELEASE_TAG"]
+          version = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]
+          if not re.fullmatch(r"v\d+\.\d+\.\d+", tag) or tag != f"v{version}":
+              raise SystemExit("Release tag must match the stable version in pyproject.toml")
+          PY
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: BookTr-windows
+          path: dist
+
+      - name: Create executable checksum
+        working-directory: dist
+        run: sha256sum BookTr.exe > SHA256SUMS.txt
+
+      - name: Publish the verified Windows release
+        shell: bash
+        run: |
+          if draft=$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft); then
+            if [ "$draft" = false ]; then
+              gh release view "$RELEASE_TAG" --json assets --jq \
+                '[.assets[].name] | (index("BookTr.exe") != null and index("SHA256SUMS.txt") != null)' \
+                | grep -qx true
+              echo "Release $RELEASE_TAG is already published with both assets."
+              exit 0
+            fi
+          else
+            notes=(--generate-notes)
+            if [ -f "docs/releases/$RELEASE_TAG.md" ]; then
+              notes=(--notes-file "docs/releases/$RELEASE_TAG.md")
+            fi
+            gh release create "$RELEASE_TAG" --verify-tag --draft \
+              --title "BookTr $RELEASE_TAG" "${notes[@]}"
+          fi
+          gh release upload "$RELEASE_TAG" dist/BookTr.exe dist/SHA256SUMS.txt --clobber
+          gh release edit "$RELEASE_TAG" --draft=false --latest

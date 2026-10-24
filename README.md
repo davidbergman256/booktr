@@ -96,9 +96,19 @@ and selected models. Full review remains enabled.
 
 ## Windows distribution
 
+[Download the latest Windows release](https://github.com/davidbergman256/booktr/releases/latest/download/BookTr.exe).
+
 GitHub Actions tests and builds `BookTr.exe`, including native Typst, CustomTkinter
 assets and FFmpeg, then runs an offline PDF/M4B smoke test against the executable.
 Private keys are configured after installation and never shipped in the artifact.
+
+Pushes to `main` and pull requests produce Actions artifacts. A stable version tag
+such as `v0.2.0` also publishes a GitHub Release after those checks pass, including
+`BookTr.exe` and `SHA256SUMS.txt`. The tag must match `project.version` in
+`pyproject.toml`. To publish the next version, update that version on `main`,
+optionally add `docs/releases/vX.Y.Z.md`, then create and push the matching tag.
+The release stays a draft until both files are uploaded; rerunning publication
+preserves an already published release.
 
 ## Architecture
 
