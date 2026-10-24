@@ -5,17 +5,21 @@ Typst binárka je přibalená v .exe (PyInstaller), případně se vezme z PATH.
 from __future__ import annotations
 
 import logging
+import json
+import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from ..errors import BookTrError
+from .document import NOTE_TOKEN
 
 log = logging.getLogger("booktr.typeset")
 
-_TYPST_SPECIALS = "\\#$*_`[]<>@~"
+_TYPST_SPECIALS = "\\#$*_`[]<>@~=/"
 
 
 def escape_typst(text: str) -> str:
@@ -64,18 +68,81 @@ def compile_typ(typ_file: Path, out_pdf: Path) -> None:
 
 def render_typ(book: dict, final: dict, preamble: str) -> str:
     parts = [preamble, ""]
+    notes = {note["id"]: note for note in book.get("footnotes", [])}
+    used_notes: set[str] = set()
+    shown_images: set[str] = set()
+
+    def content(text: str) -> str:
+        result = []
+        last = 0
+        for match in NOTE_TOKEN.finditer(text):
+            result.append(escape_typst(text[last:match.start()]))
+            ident = match[1]
+            if ident not in notes or ident not in final:
+                raise BookTrError("typeset", f"Footnote {ident} has no translated body")
+            if ident in used_notes:
+                result.append(f"#footnote(<note-{ident}>)")
+            else:
+                result.append(f"#footnote[{escape_typst(final[ident])}]<note-{ident}>")
+                used_notes.add(ident)
+            last = match.end()
+        result.append(escape_typst(text[last:]))
+        return "".join(result)
+
+    def image(asset: dict):
+        if asset["id"] in shown_images or asset.get("role") in ("scan_background", "cover_artwork"):
+            return
+        shown_images.add(asset["id"])
+        path = json.dumps(asset["path"], ensure_ascii=False)
+        bbox = asset.get("bbox")
+        sizing = "width: 100%"
+        if bbox:
+            source_width, source_height = bbox[2] - bbox[0], bbox[3] - bbox[1]
+            width_percent = max(20, min(100, round(source_width / 420 * 100)))
+            # Set only one dimension to retain intrinsic aspect ratio without
+            # reserving an enormous empty box around a small illustration.
+            sizing = ("height: 65%" if source_height > 0 and
+                      width_percent / max(.01, source_width / source_height) > 90
+                      else f"width: {width_percent}%")
+        parts.append(f'#block(width: 100%, breakable: false, above: 1em, below: 1em)[#align(center)[#image({path}, {sizing})]]')
+        parts.append("")
+
+    cover = book.get("cover")
+    if cover:
+        path = json.dumps(cover["path"], ensure_ascii=False)
+        parts.append(f'#page(margin: 0pt, numbering: none)[#image({path}, width: 100%, height: 100%, fit: "contain")]')
     title = escape_typst(final.get("book-title") or book.get("title", "Kniha"))
-    parts.append(f'#align(center + horizon)[#text(size: 26pt, weight: "bold")[{title}]]')
-    parts.append("#pagebreak()")
+    parts.append(f'#page(numbering: none)[#align(center + horizon)[#text(size: 26pt, weight: "bold")[{title}]]]')
+    parts.append("#counter(page).update(1)")
+    assets = book.get("images", [])
     for ch in book["chapters"]:
         if ch.get("heading"):
+            for asset in assets:
+                if asset.get("before_heading") == f"{ch['id']}-h000":
+                    image(asset)
             heading = final.get(f"{ch['id']}-h000") or ch["heading"]
-            parts.append(f"= {escape_typst(heading)}")
-        else:
-            parts.append(f"= Kapitola {int(ch['id'][2:])}")
+            parts.append(f"= {content(heading)}")
         parts.append("")
         for p in ch["paragraphs"]:
-            parts.append(escape_typst(final[p["id"]]))
+            for asset in assets:
+                if asset.get("before_paragraph") == p["id"]:
+                    image(asset)
+            parts.append(content(final[p["id"]]))
+            parts.append("")
+            for asset in assets:
+                if asset.get("after_paragraph") == p["id"]:
+                    image(asset)
+    # Image-only pages and orphan note bodies are retained even when the source
+    # PDF does not provide enough geometry to place them confidently.
+    for asset in assets:
+        image(asset)
+    unused = [note for ident, note in notes.items() if ident not in used_notes]
+    if unused:
+        parts.extend(["= Poznámky", ""])
+        for note in unused:
+            if note["id"] not in final:
+                raise BookTrError("typeset", f"Untranslated source footnote {note['id']}")
+            parts.append(f"{escape_typst(note['label'])}. {escape_typst(final[note['id']])}")
             parts.append("")
     return "\n".join(parts)
 
@@ -94,6 +161,8 @@ def run(engine) -> Path:
     preamble_path = Path(__file__).resolve().parent.parent / "assets" / "book.typ"
     preamble = preamble_path.read_text(encoding="utf-8")
     preamble = preamble.replace("{{PAPER}}", "a5" if cfg.page_format == "a5" else "a4")
+    font_size = max(12, min(24, int(getattr(cfg, "font_size", 14))))
+    preamble = preamble.replace("{{FONT_SIZE}}", str(font_size))
 
     typ_file = job.dir / "book.typ"
     typ_file.write_text(render_typ(book, final, preamble), encoding="utf-8")
@@ -101,11 +170,20 @@ def run(engine) -> Path:
     out_tmp = job.dir / "book.pdf"
     compile_typ(typ_file, out_tmp)
 
+    cfg.output_path.mkdir(parents=True, exist_ok=True)
     dest = cfg.output_path / f"Kniha – {safe_filename(book.get('title', 'kniha'))} (česky).pdf"
+    publication_tmp = None
     try:
-        shutil.copyfile(out_tmp, dest)
+        with tempfile.NamedTemporaryFile(prefix=".booktr-", suffix=".pdf", dir=dest.parent,
+                                         delete=False) as pending:
+            publication_tmp = Path(pending.name)
+        shutil.copyfile(out_tmp, publication_tmp)
+        os.replace(publication_tmp, dest)
     except PermissionError as exc:
         raise BookTrError("output_locked", str(exc)) from exc
+    finally:
+        if publication_tmp is not None:
+            publication_tmp.unlink(missing_ok=True)
 
     engine.report("typeset", 1, 1)
     log.info("book written to %s", dest)

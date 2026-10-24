@@ -1,9 +1,15 @@
 name: build-windows
 
 on:
+  pull_request:
   push:
     tags: ["v*"]
+    branches: ["main"]
   workflow_dispatch:
+
+concurrency:
+  group: booktr-build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -15,6 +21,7 @@ jobs:
           python-version: "3.12"
       - run: pip install -e ".[dev]"
       - run: pytest -q
+      - run: python -m booktr --self-test
 
   build:
     needs: test
@@ -26,15 +33,13 @@ jobs:
           python-version: "3.12"
       - run: pip install . pyinstaller
 
-      - name: Download typst binary
+      - run: pyinstaller build/booktr.spec
+
+      - name: Verify packaged PDF and audiobook tools
         shell: pwsh
         run: |
-          Invoke-WebRequest -Uri "https://github.com/typst/typst/releases/latest/download/typst-x86_64-pc-windows-msvc.zip" -OutFile typst.zip
-          Expand-Archive typst.zip -DestinationPath .
-          New-Item -ItemType Directory -Force -Path typst | Out-Null
-          Move-Item typst-x86_64-pc-windows-msvc/typst.exe typst/typst.exe
-
-      - run: pyinstaller build/booktr.spec
+          $process = Start-Process -FilePath ./dist/BookTr.exe -ArgumentList '--self-test' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "BookTr packaged self-test failed" }
 
       - uses: actions/upload-artifact@v4
         with:

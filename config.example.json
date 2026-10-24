@@ -1,9 +1,24 @@
 {
   "openai_api_key": "sk-VLOZTE-KLIC",
-  "model_draft": "gpt-5.4-mini",
-  "model_review": "gpt-5.5",
+  "model_draft": "gpt-6-luna",
+  "model_review": "gpt-6.1-sol",
+  "draft_reasoning_effort": "none",
+  "reasoning_effort": "low",
+  "translation_workers": 12,
+  "chunk_words": 1200,
+  "api_timeout": 120,
   "helper_name": "David",
   "helper_phone": "+420 000 000 000",
   "output_dir": null,
-  "page_format": "a4"
+  "page_format": "a4",
+  "font_size": 14,
+  "voice_mode": "normal",
+  "google_cloud_project": "",
+  "google_credentials_file": "",
+  "google_api_key": "",
+  "google_voice": "cs-CZ-Chirp3-HD-Gacrux",
+  "elevenlabs_api_key": "",
+  "elevenlabs_voice_id": "",
+  "elevenlabs_model": "eleven_v4",
+  "audio_workers": 3
 }
